@@ -925,13 +925,9 @@ struct SettingsView: View {
                                 }
                             }
 
-                            if let option = garageVM.dieselOption(for: vehicle.vin)
-                                ?? DieselOption.all.first(where: { $0.id == selectedDieselId })
-                                ?? DieselOption.fallback {
-                                Text("Glow plugs will cycle for \(option.glowPlugSeconds) seconds before starting.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text("Glow plugs will cycle for \(resolvedDieselOption(for: vehicle).glowPlugSeconds) seconds before starting.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
                         }
                     } else {
                         Text("Select a vehicle from Home to adjust settings.")
@@ -963,6 +959,12 @@ struct SettingsView: View {
                     selectedDieselId = garageVM.dieselOption(for: vin)?.id
                 }
             }
+        }
+
+        private func resolvedDieselOption(for vehicle: Vehicle) -> DieselOption {
+            garageVM.dieselOption(for: vehicle.vin)
+                ?? DieselOption.all.first(where: { $0.id == selectedDieselId })
+                ?? DieselOption.fallback
         }
     }
 }
