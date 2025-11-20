@@ -627,30 +627,95 @@ struct RootView: View {
     @State private var selectedTab = 0
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            HomeView(selectedTab: $selectedTab)
-                .tabItem { Label("Home", systemImage: "house.fill") }
-                .tag(0)
-            LocationView()
-                .tabItem { Label("Map", systemImage: "map" ) }
-                .tag(1)
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-                .tag(2)
-            DevSettingsView()
-                .tabItem { Label("Dev", systemImage: "hammer.fill") }
-                .tag(3)
+        ZStack {
+            TabView(selection: $selectedTab) {
+                HomeView(selectedTab: $selectedTab)
+                    .tabItem { Label("Home", systemImage: "house.fill") }
+                    .tag(0)
+                LocationView()
+                    .tabItem { Label("Map", systemImage: "map" ) }
+                    .tag(1)
+                SettingsView()
+                    .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                    .tag(2)
+                DevSettingsView()
+                    .tabItem { Label("Dev", systemImage: "hammer.fill") }
+                    .tag(3)
+            }
+            .preferredColorScheme(.dark)
+            .sheet(isPresented: $garageVM.showFuelSetup) {
+                FuelSetupView()
+                    .environmentObject(garageVM)
+            }
+            .disabled(authManager.accessToken == nil)
+
+            if authManager.accessToken == nil {
+                SignInGateView()
+                    .environmentObject(authManager)
+            }
         }
-        .preferredColorScheme(.dark)
-        .sheet(isPresented: $garageVM.showFuelSetup) {
-            FuelSetupView()
-                .environmentObject(garageVM)
+        .onAppear {
+            if authManager.accessToken != nil {
+                Task { await garageVM.loadVehicles() }
+            }
+        }
+        .onChange(of: authManager.accessToken) { newToken in
+            if newToken != nil {
+                Task { await garageVM.loadVehicles() }
+            } else {
+                garageVM.vehicles = []
+                garageVM.selectedVehicle = nil
+                garageVM.status = nil
+            }
+        }
+    }
+}
+
+struct SignInGateView: View {
+    @EnvironmentObject var authManager: AuthManager
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.9).ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Spacer()
+                Image(systemName: "lock.iphone")
+                    .font(.system(size: 64))
+                    .foregroundColor(.white)
+                VStack(spacing: 8) {
+                    Text("Sign in to access your garage")
+                        .font(.title2)
+                        .bold()
+                        .foregroundColor(.white)
+                    Text("Use Sign in with Apple to securely load your vehicles and personalize settings.")
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    authManager.signInWithApple()
+                } label: {
+                    HStack {
+                        Image(systemName: "apple.logo")
+                        Text("Sign in with Apple")
+                            .bold()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.white)
+                    .foregroundColor(.black)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                Spacer()
+            }
+            .padding()
         }
     }
 }
 
 struct HomeView: View {
     @EnvironmentObject var garageVM: GarageViewModel
+    @EnvironmentObject var authManager: AuthManager
     @Binding var selectedTab: Int
 
     var body: some View {
@@ -679,7 +744,9 @@ struct HomeView: View {
             }
             .navigationTitle("Garage")
             .task {
-                await garageVM.loadVehicles()
+                if authManager.accessToken != nil {
+                    await garageVM.loadVehicles()
+                }
             }
             .overlay(alignment: .top) {
                 if let message = garageVM.bannerMessage {
@@ -884,6 +951,7 @@ struct SettingsView: View {
 
     @State private var valetMode = false
     @State private var requireFaceID = false
+    @State private var selectedVin: String?
     @State private var selectedFuel: FuelType?
     @State private var selectedDieselId: String?
 
@@ -891,53 +959,71 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section(header: Text("Vehicle")) {
-                    if let vehicle = garageVM.selectedVehicle {
-                        Picker("Fuel Type", selection: Binding(
-                            get: { selectedFuel ?? vehicle.fuelType ?? .gas },
+                    if garageVM.vehicles.isEmpty {
+                        Text("No vehicles available. Sign in to load your garage.")
+                    } else {
+                        Picker("Selected Vehicle", selection: Binding(
+                            get: { selectedVin ?? garageVM.selectedVehicle?.vin ?? garageVM.vehicles.first?.vin ?? "" },
                             set: { newValue in
-                                selectedFuel = newValue
-                                Task { await garageVM.setFuel(type: newValue) }
-                            })) {
-                                ForEach(FuelType.allCases) { type in
-                                    Text(type.rawValue).tag(type)
-                                }
+                                selectedVin = newValue
+                                guard let vehicle = garageVM.vehicles.first(where: { $0.vin == newValue }) else { return }
+                                garageVM.selectedVehicle = vehicle
+                                selectedFuel = vehicle.fuelType ?? .gas
+                                selectedDieselId = garageVM.dieselOption(for: vehicle.vin)?.id
+                                Task { try? await garageVM.refreshStatus() }
                             }
-                        
-                        if (selectedFuel ?? vehicle.fuelType) == .diesel {
-                            Picker(
-                                "Diesel Engine",
-                                selection: Binding(
-                                    get: {
-                                        selectedDieselId
-                                            ?? garageVM.dieselOption(for: vehicle.vin)?.id
-                                            ?? DieselOption.fallback.id
-                                    },
-                                    set: { newValue in
-                                        selectedDieselId = newValue
-                                        if let option = DieselOption.all.first(where: { $0.id == newValue }) {
-                                            garageVM.setDieselOption(option, for: vehicle.vin)
-                                        }
-                                    }
-                                )
-                            ) {
-                                ForEach(DieselOption.all) { option in
-                                    Text(option.name).tag(option.id)
-                                }
-                            }
-
-                            if let option = garageVM.dieselOption(for: vehicle.vin)
-                                ?? DieselOption.all.first(where: { $0.id == selectedDieselId }) {
-                                Text("Glow plugs will cycle for \(option.glowPlugSeconds) seconds before starting.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text("Glow plugs will cycle for \(DieselOption.fallback.glowPlugSeconds) seconds before starting.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                        )) {
+                            ForEach(garageVM.vehicles, id: \.vin) { vehicle in
+                                Text(vehicle.nickname).tag(vehicle.vin)
                             }
                         }
-                    } else {
-                        Text("Select a vehicle from Home to adjust settings.")
+
+                        if let vehicle = garageVM.selectedVehicle ?? garageVM.vehicles.first(where: { $0.vin == selectedVin }) {
+                            Picker("Fuel Type", selection: Binding(
+                                get: { selectedFuel ?? vehicle.fuelType ?? .gas },
+                                set: { newValue in
+                                    selectedFuel = newValue
+                                    Task { await garageVM.setFuel(type: newValue) }
+                                })) {
+                                    ForEach(FuelType.allCases) { type in
+                                        Text(type.rawValue).tag(type)
+                                    }
+                                }
+
+                            if (selectedFuel ?? vehicle.fuelType) == .diesel {
+                                Picker(
+                                    "Diesel Engine",
+                                    selection: Binding(
+                                        get: {
+                                            selectedDieselId
+                                                ?? garageVM.dieselOption(for: vehicle.vin)?.id
+                                                ?? DieselOption.fallback.id
+                                        },
+                                        set: { newValue in
+                                            selectedDieselId = newValue
+                                            if let option = DieselOption.all.first(where: { $0.id == newValue }) {
+                                                garageVM.setDieselOption(option, for: vehicle.vin)
+                                            }
+                                        }
+                                    )
+                                ) {
+                                    ForEach(DieselOption.all) { option in
+                                        Text(option.name).tag(option.id)
+                                    }
+                                }
+
+                                if let option = garageVM.dieselOption(for: vehicle.vin)
+                                    ?? DieselOption.all.first(where: { $0.id == selectedDieselId }) {
+                                    Text("Glow plugs will cycle for \(option.glowPlugSeconds) seconds before starting.")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("Glow plugs will cycle for \(DieselOption.fallback.glowPlugSeconds) seconds before starting.")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -961,6 +1047,7 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .onAppear {
+                selectedVin = garageVM.selectedVehicle?.vin ?? garageVM.vehicles.first?.vin
                 selectedFuel = garageVM.selectedVehicle?.fuelType
                 if let vin = garageVM.selectedVehicle?.vin {
                     selectedDieselId = garageVM.dieselOption(for: vin)?.id
