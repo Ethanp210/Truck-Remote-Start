@@ -934,13 +934,14 @@ struct TruckRemoteStartApp: App {
                 }
                 .onChange(of: authManager.accessToken) { _ in
                     configurePushUploader()
-                    Task { await garageVM.loadVehicles() }
+                    Task {
+                        await garageVM.loadVehicles()
+                        await uploadPushTokenIfAuthorized()
+                    }
                 }
         }
-        .onChange(of: pushManager.deviceTokenHex) { token in
-            guard let token else { return }
-            configurePushUploader()
-            Task { try? await pushManager.uploader?(token) }
+        .onChange(of: pushManager.deviceTokenHex) { _ in
+            Task { await uploadPushTokenIfAuthorized() }
         }
     }
 
@@ -949,6 +950,12 @@ struct TruckRemoteStartApp: App {
         pushManager.uploader = { hex in
             try await LiveRemoteVehicleService(client: client).uploadPushToken(hex)
         }
+    }
+
+    private func uploadPushTokenIfAuthorized() async {
+        guard authManager.accessToken != nil, let token = pushManager.deviceTokenHex else { return }
+        configurePushUploader()
+        try? await pushManager.uploader?(token)
     }
 }
 
