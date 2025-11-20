@@ -214,8 +214,26 @@ final class PresentationAnchorProvider: NSObject, ASWebAuthenticationPresentatio
 final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     var onCompletion: ((Result<String, Error>) -> Void)?
     private var controller: ASAuthorizationController?
+    private var anchor: ASPresentationAnchor?
+
+    enum PresentationError: LocalizedError {
+        case missingAnchor
+
+        var errorDescription: String? {
+            switch self {
+            case .missingAnchor:
+                return "No active window available to present Apple Sign-In."
+            }
+        }
+    }
 
     func start() {
+        guard let anchor = findPresentationAnchor() else {
+            onCompletion?(.failure(PresentationError.missingAnchor))
+            return
+        }
+        self.anchor = anchor
+
         let provider = ASAuthorizationAppleIDProvider()
         let request = provider.createRequest()
         request.requestedScopes = [.fullName, .email]
@@ -226,11 +244,23 @@ final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first!
-        if let key = scene.windows.first(where: { $0.isKeyWindow }) { return key }
-        if let any = scene.windows.first { return any }
-        return UIWindow(windowScene: scene)
+        if let anchor { return anchor }
+        guard let resolvedAnchor = findPresentationAnchor() else {
+            onCompletion?(.failure(PresentationError.missingAnchor))
+            return ASPresentationAnchor()
+        }
+        self.anchor = resolvedAnchor
+        return resolvedAnchor
+    }
+
+    private func findPresentationAnchor() -> ASPresentationAnchor? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+            .compactMap { scene in
+                scene.windows.first(where: { $0.isKeyWindow })
+            }
+            .first
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
