@@ -213,15 +213,16 @@ final class PresentationAnchorProvider: NSObject, ASWebAuthenticationPresentatio
 
 final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
     var onCompletion: ((Result<String, Error>) -> Void)?
+    private var controller: ASAuthorizationController?
 
     func start() {
         let provider = ASAuthorizationAppleIDProvider()
         let request = provider.createRequest()
         request.requestedScopes = [.fullName, .email]
-        let controller = ASAuthorizationController(authorizationRequests: [request])
-        controller.delegate = self
-        controller.presentationContextProvider = self
-        controller.performRequests()
+        controller = ASAuthorizationController(authorizationRequests: [request])
+        controller?.delegate = self
+        controller?.presentationContextProvider = self
+        controller?.performRequests()
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
@@ -237,10 +238,12 @@ final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
         let tokenData = credential.identityToken ?? credential.authorizationCode
         let token = tokenData.flatMap { String(data: $0, encoding: .utf8) } ?? credential.user
         onCompletion?(.success(token))
+        self.controller = nil
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         onCompletion?(.failure(error))
+        self.controller = nil
     }
 }
 
