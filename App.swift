@@ -259,6 +259,12 @@ final class AuthManager: ObservableObject {
         self.accessToken = keychain.token()
     }
 
+    func devBypassSignIn() {
+        let token = "DEV_BYPASS_TOKEN"
+        accessToken = token
+        keychain.setToken(token)
+    }
+
     func signInWithApple() {
         let coordinator = AppleSignInCoordinator()
         coordinator.onCompletion = { [weak self] result in
@@ -706,6 +712,28 @@ struct SignInGateView: View {
                     .foregroundColor(.black)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
+                Button {
+                    authManager.devBypassSignIn()
+                } label: {
+                    HStack {
+                        Image(systemName: "hammer")
+                        Text("Bypass (Dev Only)")
+                            .bold()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.orange.opacity(0.2))
+                    .foregroundColor(.orange)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.orange, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                Text("Bypass uses a dummy token for UI development while Sign in with Apple is unavailable.")
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
                 Spacer()
             }
             .padding()
@@ -919,6 +947,9 @@ struct DevSettingsView: View {
                     } else {
                         authManager.signOut()
                     }
+                }
+                PrimaryButton(title: "Bypass Auth (Dev Only)") {
+                    authManager.devBypassSignIn()
                 }
             }
             Section(header: Text("Push")) {
