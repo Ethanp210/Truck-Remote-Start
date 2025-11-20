@@ -1,0 +1,40 @@
+# Xcode and Swift
+DerivedData/
+.build/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.xcworkspace
+*.lock
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# CocoaPods / Carthage
+Pods/
+Carthage/
+
+# Provisioning
+*.mobileprovision
+*.provisionprofile
+*.p8
+
+# Secrets
+Secrets.xcconfig
+
+# Generated files
+.DS_Store
+Assets.xcassets/AppIcon.appiconset/*.png
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# User settings
+*.swp
+*.swo
+*.orig
