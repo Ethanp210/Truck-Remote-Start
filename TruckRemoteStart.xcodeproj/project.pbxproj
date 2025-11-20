@@ -1,0 +1,245 @@
+// !$*UTF8*$!
+{
+archiveVersion = 1;
+classes = {};
+objectVersion = 56;
+objects = {
+
+/* Begin PBXBuildFile section */
+TRSAppSwiftBuild /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSAppSwift /* App.swift */; };
+TRSAssetsBuild /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = TRSAssets /* Assets.xcassets */; };
+TRSLaunchBuild /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = TRSLaunch /* LaunchScreen.storyboard */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+TRSAppSwift /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; };
+TRSAssets /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; };
+TRSInfo /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; };
+TRSLaunch /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Resources/LaunchScreen.storyboard; };
+TRSProduct /* TruckRemoteStart.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TruckRemoteStart.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+TRSFrameworks /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+TRSGroup /* Project */ = {
+isa = PBXGroup;
+children = (
+TRSAppSwift /* App.swift */,
+TRSAssets /* Assets.xcassets */,
+TRSLaunch /* LaunchScreen.storyboard */,
+TRSInfo /* Info.plist */,
+TRSProducts /* Products */,
+);
+sourceTree = "<group>";
+};
+TRSProducts /* Products */ = {
+isa = PBXGroup;
+children = (
+TRSProduct /* TruckRemoteStart.app */,
+);
+name = Products;
+sourceTree = "<group>";
+};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+TRSTarget /* TruckRemoteStart */ = {
+isa = PBXNativeTarget;
+buildConfigurationList = TRSTargetConfigList /* Build configuration list for PBXNativeTarget "TruckRemoteStart" */;
+buildPhases = (
+TRSSources /* Sources */,
+TRSFrameworks /* Frameworks */,
+TRSResources /* Resources */,
+);
+buildRules = (
+);
+dependencies = (
+);
+name = TruckRemoteStart;
+productName = TruckRemoteStart;
+productReference = TRSProduct /* TruckRemoteStart.app */;
+productType = "com.apple.product-type.application";
+};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+TRSProject /* Project object */ = {
+isa = PBXProject;
+attributes = {
+BuildIndependentTargetsInParallel = 1;
+LastSwiftUpdateCheck = 1500;
+LastUpgradeCheck = 1500;
+TargetAttributes = {
+TRSTarget = {
+DevelopmentTeam = "";
+SystemCapabilities = {
+com.apple.Push = {
+enabled = 1;
+};
+};
+};
+};
+};
+buildConfigurationList = TRSProjectConfigList /* Build configuration list for PBXProject "TruckRemoteStart" */;
+compatibilityVersion = "Xcode 15.0";
+developmentRegion = en;
+hasScannedForEncodings = 0;
+knownRegions = (
+en,
+);
+mainGroup = TRSGroup /* Project */;
+productRefGroup = TRSProducts /* Products */;
+projectDirPath = "";
+projectRoot = "";
+targets = (
+TRSTarget /* TruckRemoteStart */,
+);
+};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+TRSResources /* Resources */ = {
+isa = PBXResourcesBuildPhase;
+buildActionMask = 2147483647;
+files = (
+TRSAssetsBuild /* Assets.xcassets in Resources */,
+TRSLaunchBuild /* LaunchScreen.storyboard in Resources */,
+);
+runOnlyForDeploymentPostprocessing = 0;
+};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+TRSSources /* Sources */ = {
+isa = PBXSourcesBuildPhase;
+buildActionMask = 2147483647;
+files = (
+TRSAppSwiftBuild /* App.swift in Sources */,
+);
+runOnlyForDeploymentPostprocessing = 0;
+};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+TRSProjectDebug /* Debug */ = {
+isa = XCBuildConfiguration;
+buildSettings = {
+ALWAYS_SEARCH_USER_PATHS = NO;
+CLANG_ANALYZER_NONNULL = YES;
+CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+CLANG_ENABLE_MODULES = YES;
+CLANG_ENABLE_OBJC_ARC = YES;
+CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+CODE_SIGN_IDENTITY = "Apple Development";
+CODE_SIGN_STYLE = Automatic;
+CURRENT_PROJECT_VERSION = 1;
+DEVELOPMENT_TEAM = "";
+ENABLE_STRICT_OBJC_MSGSEND = YES;
+GCC_C_LANGUAGE_STANDARD = gnu11;
+IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+MARKETING_VERSION = 1.0;
+MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+ONLY_ACTIVE_ARCH = YES;
+PRODUCT_BUNDLE_IDENTIFIER = com.example.TruckRemoteStart;
+PRODUCT_NAME = "$(TARGET_NAME)";
+SDKROOT = iphoneos;
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+TARGETED_DEVICE_FAMILY = "1";
+};
+name = Debug;
+};
+TRSProjectRelease /* Release */ = {
+isa = XCBuildConfiguration;
+buildSettings = {
+ALWAYS_SEARCH_USER_PATHS = NO;
+CLANG_ANALYZER_NONNULL = YES;
+CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+CLANG_ENABLE_MODULES = YES;
+CLANG_ENABLE_OBJC_ARC = YES;
+CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+CODE_SIGN_IDENTITY = "Apple Development";
+CODE_SIGN_STYLE = Automatic;
+CURRENT_PROJECT_VERSION = 1;
+DEVELOPMENT_TEAM = "";
+ENABLE_STRICT_OBJC_MSGSEND = YES;
+GCC_C_LANGUAGE_STANDARD = gnu11;
+IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+MARKETING_VERSION = 1.0;
+PRODUCT_BUNDLE_IDENTIFIER = com.example.TruckRemoteStart;
+PRODUCT_NAME = "$(TARGET_NAME)";
+SDKROOT = iphoneos;
+SWIFT_COMPILATION_MODE = wholemodule;
+SWIFT_OPTIMIZATION_LEVEL = "-O";
+TARGETED_DEVICE_FAMILY = "1";
+};
+name = Release;
+};
+TRSTargetDebug /* Debug */ = {
+isa = XCBuildConfiguration;
+buildSettings = {
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+CODE_SIGN_IDENTITY = "Apple Development";
+CODE_SIGN_STYLE = Automatic;
+DEVELOPMENT_TEAM = "";
+INFOPLIST_FILE = Info.plist;
+IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+PRODUCT_BUNDLE_IDENTIFIER = com.example.TruckRemoteStart;
+PRODUCT_NAME = "$(TARGET_NAME)";
+SWIFT_VERSION = 5.0;
+TARGETED_DEVICE_FAMILY = "1";
+};
+name = Debug;
+};
+TRSTargetRelease /* Release */ = {
+isa = XCBuildConfiguration;
+buildSettings = {
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+CODE_SIGN_IDENTITY = "Apple Development";
+CODE_SIGN_STYLE = Automatic;
+DEVELOPMENT_TEAM = "";
+INFOPLIST_FILE = Info.plist;
+IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+PRODUCT_BUNDLE_IDENTIFIER = com.example.TruckRemoteStart;
+PRODUCT_NAME = "$(TARGET_NAME)";
+SWIFT_VERSION = 5.0;
+TARGETED_DEVICE_FAMILY = "1";
+};
+name = Release;
+};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+TRSProjectConfigList /* Build configuration list for PBXProject "TruckRemoteStart" */ = {
+isa = XCConfigurationList;
+buildConfigurations = (
+TRSProjectDebug /* Debug */,
+TRSProjectRelease /* Release */,
+);
+defaultConfigurationIsVisible = 0;
+defaultConfigurationName = Release;
+};
+TRSTargetConfigList /* Build configuration list for PBXNativeTarget "TruckRemoteStart" */ = {
+isa = XCConfigurationList;
+buildConfigurations = (
+TRSTargetDebug /* Debug */,
+TRSTargetRelease /* Release */,
+);
+defaultConfigurationIsVisible = 0;
+defaultConfigurationName = Release;
+};
+/* End XCConfigurationList section */
+};
+rootObject = TRSProject /* Project object */;
+}
