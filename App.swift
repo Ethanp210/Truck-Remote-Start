@@ -84,6 +84,17 @@ struct VehicleStatus: Equatable, Codable {
         try c.encode(location.latitude, forKey: .latitude)
         try c.encode(location.longitude, forKey: .longitude)
     }
+
+    static func == (lhs: VehicleStatus, rhs: VehicleStatus) -> Bool {
+        lhs.isLocked == rhs.isLocked &&
+        lhs.engineOn == rhs.engineOn &&
+        lhs.fuelPercent == rhs.fuelPercent &&
+        lhs.batteryVoltage == rhs.batteryVoltage &&
+        lhs.outsideTempF == rhs.outsideTempF &&
+        lhs.cabinTempF == rhs.cabinTempF &&
+        lhs.location.latitude == rhs.location.latitude &&
+        lhs.location.longitude == rhs.location.longitude
+    }
 }
 
 // MARK: - Configuration
