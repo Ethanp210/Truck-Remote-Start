@@ -1,7 +1,4 @@
 import SwiftUI
-import AuthenticationServices
-import CryptoKit
-import Security
 import MapKit
 import UIKit
 import UserNotifications
@@ -152,246 +149,14 @@ final class ConfigStore: ObservableObject {
     }
 }
 
-// MARK: - Keychain
-
-final class KeychainStore {
-    private let service = "com.example.TruckRemoteStart"
-    private let account = "access_token"
-
-    func setToken(_ token: String) {
-        guard let data = token.data(using: .utf8) else { return }
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-        SecItemDelete(query as CFDictionary)
-        let addQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
-        ]
-        SecItemAdd(addQuery as CFDictionary, nil)
-    }
-
-    func token() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    func clear() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
-}
-
-// MARK: - Presentation Anchor Provider
-
-final class PresentationAnchorProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first!
-        if let key = scene.windows.first(where: { $0.isKeyWindow }) { return key }
-        if let any = scene.windows.first { return any }
-        return UIWindow(windowScene: scene)
-    }
-}
-
-final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
-    var onCompletion: ((Result<String, Error>) -> Void)?
-    private var controller: ASAuthorizationController?
-    private var anchor: ASPresentationAnchor?
-
-    enum PresentationError: LocalizedError {
-        case missingAnchor
-
-        var errorDescription: String? {
-            switch self {
-            case .missingAnchor:
-                return "No active window available to present Apple Sign-In."
-            }
-        }
-    }
-
-    func start() {
-        guard let anchor = findPresentationAnchor() else {
-            onCompletion?(.failure(PresentationError.missingAnchor))
-            return
-        }
-        self.anchor = anchor
-
-        let provider = ASAuthorizationAppleIDProvider()
-        let request = provider.createRequest()
-        request.requestedScopes = [.fullName, .email]
-        controller = ASAuthorizationController(authorizationRequests: [request])
-        controller?.delegate = self
-        controller?.presentationContextProvider = self
-        controller?.performRequests()
-    }
-
-    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        if let anchor { return anchor }
-        guard let resolvedAnchor = findPresentationAnchor() else {
-            onCompletion?(.failure(PresentationError.missingAnchor))
-            return ASPresentationAnchor()
-        }
-        self.anchor = resolvedAnchor
-        return resolvedAnchor
-    }
-
-    private func findPresentationAnchor() -> ASPresentationAnchor? {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .filter { $0.activationState == .foregroundActive }
-            .compactMap { scene in
-                scene.windows.first(where: { $0.isKeyWindow })
-            }
-            .first
-    }
-
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else { return }
-        let tokenData = credential.identityToken ?? credential.authorizationCode
-        let token = tokenData.flatMap { String(data: $0, encoding: .utf8) } ?? credential.user
-        onCompletion?(.success(token))
-        self.controller = nil
-    }
-
-    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-        onCompletion?(.failure(error))
-        self.controller = nil
-    }
-}
-
 // MARK: - Auth
 
 @MainActor
 final class AuthManager: ObservableObject {
     @Published private(set) var accessToken: String?
-    @Published var isAuthenticating = false
-    private let keychain: KeychainStore
-    private var session: ASWebAuthenticationSession?
-    private var appleCoordinator: AppleSignInCoordinator?
 
-    init(keychain: KeychainStore = KeychainStore()) {
-        self.keychain = keychain
-        self.accessToken = keychain.token()
-    }
-
-    func devBypassSignIn() {
-        let token = "DEV_BYPASS_TOKEN"
-        accessToken = token
-        keychain.setToken(token)
-    }
-
-    func signInWithApple() {
-        let coordinator = AppleSignInCoordinator()
-        coordinator.onCompletion = { [weak self] result in
-            Task { @MainActor in
-                switch result {
-                case .success(let token):
-                    self?.accessToken = token
-                    self?.keychain.setToken(token)
-                case .failure(let error):
-                    print("Apple sign-in failed: \(error)")
-                }
-                self?.appleCoordinator = nil
-            }
-        }
-        appleCoordinator = coordinator
-        coordinator.start()
-    }
-
-    func signIn(config: APIConfig) async {
-        isAuthenticating = true
-        defer { isAuthenticating = false }
-        do {
-            let verifier = Self.randomVerifier()
-            let challenge = Self.challenge(for: verifier)
-            let callbackURLScheme = config.redirectScheme
-            var components = URLComponents(url: config.baseURL.appendingPathComponent("/oauth/authorize"), resolvingAgainstBaseURL: false)
-            let scope = config.scopes.joined(separator: " ")
-            components?.queryItems = [
-                URLQueryItem(name: "response_type", value: "code"),
-                URLQueryItem(name: "client_id", value: config.clientId),
-                URLQueryItem(name: "redirect_uri", value: config.redirectURI),
-                URLQueryItem(name: "scope", value: scope),
-                URLQueryItem(name: "code_challenge", value: challenge),
-                URLQueryItem(name: "code_challenge_method", value: "S256")
-            ]
-            guard let url = components?.url else { return }
-            let anchorProvider = PresentationAnchorProvider()
-            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackURLScheme) { [weak self] callbackURL, error in
-                guard error == nil, let callbackURL else { return }
-                let code = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "code" })?.value
-                if let code {
-                    Task { await self?.exchangeCode(code, verifier: verifier, config: config) }
-                }
-            }
-            session.prefersEphemeralWebBrowserSession = true
-            session.presentationContextProvider = anchorProvider
-            self.session = session
-            session.start()
-        }
-    }
-
-    func signOut() {
-        accessToken = nil
-        keychain.clear()
-    }
-
-    private func exchangeCode(_ code: String, verifier: String, config: APIConfig) async {
-        struct TokenResponse: Decodable { let access_token: String }
-        var request = URLRequest(url: config.baseURL.appendingPathComponent("/oauth/token"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let payload: [String: Any] = [
-            "grant_type": "authorization_code",
-            "code": code,
-            "client_id": config.clientId,
-            "redirect_uri": config.redirectURI,
-            "code_verifier": verifier
-        ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: payload, options: [])
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else { return }
-            let tokenResponse = try JSONDecoder().decode(TokenResponse.self, from: data)
-            accessToken = tokenResponse.access_token
-            keychain.setToken(tokenResponse.access_token)
-        } catch {
-            print("Token exchange failed: \(error)")
-        }
-    }
-
-    private static func randomVerifier() -> String {
-        let chars = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
-        var result = ""
-        for _ in 0..<64 { result.append(chars.randomElement() ?? "a") }
-        return result
-    }
-
-    private static func challenge(for verifier: String) -> String {
-        let data = Data(verifier.utf8)
-        let digest = SHA256.hash(data: data)
-        return Data(digest).base64EncodedString()
-            .replacingOccurrences(of: "+", with: "-")
-            .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "=", with: "")
+    init() {
+        accessToken = "DEV_BYPASS_TOKEN"
     }
 }
 
@@ -661,7 +426,6 @@ struct RootView: View {
     @EnvironmentObject var garageVM: GarageViewModel
     @EnvironmentObject var pushManager: PushManager
     @EnvironmentObject var configStore: ConfigStore
-    @EnvironmentObject var authManager: AuthManager
 
     @State private var selectedTab = 0
 
@@ -686,97 +450,15 @@ struct RootView: View {
                 FuelSetupView()
                     .environmentObject(garageVM)
             }
-            .disabled(authManager.accessToken == nil)
-
-            if authManager.accessToken == nil {
-                SignInGateView()
-                    .environmentObject(authManager)
-            }
         }
         .onAppear {
-            if authManager.accessToken != nil {
-                Task { await garageVM.loadVehicles() }
-            }
-        }
-        .onChange(of: authManager.accessToken) { newToken in
-            if newToken != nil {
-                Task { await garageVM.loadVehicles() }
-            } else {
-                garageVM.vehicles = []
-                garageVM.selectedVehicle = nil
-                garageVM.status = nil
-            }
-        }
-    }
-}
-
-struct SignInGateView: View {
-    @EnvironmentObject var authManager: AuthManager
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.9).ignoresSafeArea()
-
-            VStack(spacing: 24) {
-                Spacer()
-                Image(systemName: "lock.iphone")
-                    .font(.system(size: 64))
-                    .foregroundColor(.white)
-                VStack(spacing: 8) {
-                    Text("Sign in to access your garage")
-                        .font(.title2)
-                        .bold()
-                        .foregroundColor(.white)
-                    Text("Use Sign in with Apple to securely load your vehicles and personalize settings.")
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                }
-                Button {
-                    authManager.signInWithApple()
-                } label: {
-                    HStack {
-                        Image(systemName: "apple.logo")
-                        Text("Sign in with Apple")
-                            .bold()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.white)
-                    .foregroundColor(.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                Button {
-                    authManager.devBypassSignIn()
-                } label: {
-                    HStack {
-                        Image(systemName: "hammer")
-                        Text("Bypass (Dev Only)")
-                            .bold()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.orange.opacity(0.2))
-                    .foregroundColor(.orange)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.orange, lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
-                Text("Bypass uses a dummy token for UI development while Sign in with Apple is unavailable.")
-                    .font(.footnote)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding()
+            Task { await garageVM.loadVehicles() }
         }
     }
 }
 
 struct HomeView: View {
     @EnvironmentObject var garageVM: GarageViewModel
-    @EnvironmentObject var authManager: AuthManager
     @Binding var selectedTab: Int
 
     var body: some View {
@@ -805,9 +487,7 @@ struct HomeView: View {
             }
             .navigationTitle("Garage")
             .task {
-                if authManager.accessToken != nil {
-                    await garageVM.loadVehicles()
-                }
+                await garageVM.loadVehicles()
             }
             .overlay(alignment: .top) {
                 if let message = garageVM.bannerMessage {
@@ -954,7 +634,6 @@ struct VehicleLocation: Identifiable {
 
 struct DevSettingsView: View {
     @EnvironmentObject var configStore: ConfigStore
-    @EnvironmentObject var authManager: AuthManager
     @EnvironmentObject var garageVM: GarageViewModel
     @EnvironmentObject var pushManager: PushManager
 
@@ -964,25 +643,14 @@ struct DevSettingsView: View {
 
     var body: some View {
         Form {
-            Section(header: Text("OAuth")) {
+            Section(header: Text("API")) {
                 TextField("Base URL", text: $baseURLString)
                     .textInputAutocapitalization(.never)
                 TextField("Client ID", text: $clientId)
                 TextField("Redirect Scheme", text: $redirectScheme)
                     .textInputAutocapitalization(.never)
-                PrimaryButton(title: "Apply & Restart Auth") {
+                PrimaryButton(title: "Apply Changes") {
                     applyChanges()
-                    Task { await authManager.signIn(config: configStore.config) }
-                }
-                PrimaryButton(title: authManager.accessToken == nil ? "Sign In" : "Sign Out") {
-                    if authManager.accessToken == nil {
-                        Task { await authManager.signIn(config: configStore.config) }
-                    } else {
-                        authManager.signOut()
-                    }
-                }
-                PrimaryButton(title: "Bypass Auth (Dev Only)") {
-                    authManager.devBypassSignIn()
                 }
             }
             Section(header: Text("Push")) {
@@ -1011,7 +679,6 @@ struct DevSettingsView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var garageVM: GarageViewModel
-    @EnvironmentObject var authManager: AuthManager
 
     @State private var valetMode = false
     @State private var requireFaceID = false
@@ -1024,7 +691,7 @@ struct SettingsView: View {
             Form {
                 Section(header: Text("Vehicle")) {
                     if garageVM.vehicles.isEmpty {
-                        Text("No vehicles available. Sign in to load your garage.")
+                        Text("No vehicles available. Check your API settings to load your garage.")
                     } else {
                         Picker("Selected Vehicle", selection: Binding(
                             get: { selectedVin ?? garageVM.selectedVehicle?.vin ?? garageVM.vehicles.first?.vin ?? "" },
@@ -1094,19 +761,6 @@ struct SettingsView: View {
                 Section(header: Text("Security")) {
                     Toggle("Valet Mode", isOn: $valetMode)
                     Toggle("Require Face ID", isOn: $requireFaceID)
-                }
-
-                Section(header: Text("Account")) {
-                    Button {
-                        authManager.signInWithApple()
-                    } label: {
-                        Label("Sign in with Apple", systemImage: "apple.logo")
-                    }
-                    if authManager.accessToken != nil {
-                        Button(role: .destructive) { authManager.signOut() } label: {
-                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                        }
-                    }
                 }
             }
             .navigationTitle("Settings")
@@ -1203,7 +857,6 @@ struct TruckRemoteStartApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(configStore)
-                .environmentObject(authManager)
                 .environmentObject(pushManager)
                 .environmentObject(garageVM)
                 .onAppear {
@@ -1216,13 +869,6 @@ struct TruckRemoteStartApp: App {
                 .onChange(of: configStore.config) { _ in
                     configurePushUploader()
                     Task { await garageVM.loadVehicles() }
-                }
-                .onChange(of: authManager.accessToken) { _ in
-                    configurePushUploader()
-                    Task {
-                        await garageVM.loadVehicles()
-                        await uploadPushTokenIfAuthorized()
-                    }
                 }
         }
         .onChange(of: pushManager.deviceTokenHex) { _ in
