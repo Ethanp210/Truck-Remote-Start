@@ -14,6 +14,21 @@ enum FuelType: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+struct DieselOption: Identifiable, Codable, Hashable {
+    let id: String
+    let name: String
+    let glowPlugSeconds: Int
+
+    static let all: [DieselOption] = [
+        DieselOption(id: "powerstroke_67", name: "Ford Power Stroke 6.7L", glowPlugSeconds: 6),
+        DieselOption(id: "duramax_66", name: "GM Duramax 6.6L", glowPlugSeconds: 5),
+        DieselOption(id: "cummins_67", name: "Ram Cummins 6.7L", glowPlugSeconds: 7),
+        DieselOption(id: "maxxforce_75", name: "Navistar MaxxForce 7.5L", glowPlugSeconds: 8)
+    ]
+
+    static var fallback: DieselOption { all.first ?? DieselOption(id: "default", name: "Diesel", glowPlugSeconds: 5) }
+}
+
 struct Vehicle: Identifiable, Hashable, Codable {
     let id: UUID
     var vin: String
@@ -196,6 +211,39 @@ final class PresentationAnchorProvider: NSObject, ASWebAuthenticationPresentatio
     }
 }
 
+final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    var onCompletion: ((Result<String, Error>) -> Void)?
+
+    func start() {
+        let provider = ASAuthorizationAppleIDProvider()
+        let request = provider.createRequest()
+        request.requestedScopes = [.fullName, .email]
+        let controller = ASAuthorizationController(authorizationRequests: [request])
+        controller.delegate = self
+        controller.presentationContextProvider = self
+        controller.performRequests()
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first!
+        if let key = scene.windows.first(where: { $0.isKeyWindow }) { return key }
+        if let any = scene.windows.first { return any }
+        return UIWindow(windowScene: scene)
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else { return }
+        let tokenData = credential.identityToken ?? credential.authorizationCode
+        let token = tokenData.flatMap { String(data: $0, encoding: .utf8) } ?? credential.user
+        onCompletion?(.success(token))
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        onCompletion?(.failure(error))
+    }
+}
+
 // MARK: - Auth
 
 @MainActor
@@ -204,10 +252,29 @@ final class AuthManager: ObservableObject {
     @Published var isAuthenticating = false
     private let keychain: KeychainStore
     private var session: ASWebAuthenticationSession?
+    private var appleCoordinator: AppleSignInCoordinator?
 
     init(keychain: KeychainStore = KeychainStore()) {
         self.keychain = keychain
         self.accessToken = keychain.token()
+    }
+
+    func signInWithApple() {
+        let coordinator = AppleSignInCoordinator()
+        coordinator.onCompletion = { [weak self] result in
+            Task { @MainActor in
+                switch result {
+                case .success(let token):
+                    self?.accessToken = token
+                    self?.keychain.setToken(token)
+                case .failure(let error):
+                    print("Apple sign-in failed: \(error)")
+                }
+                self?.appleCoordinator = nil
+            }
+        }
+        appleCoordinator = coordinator
+        coordinator.start()
     }
 
     func signIn(config: APIConfig) async {
@@ -451,14 +518,20 @@ final class GarageViewModel: ObservableObject {
     @Published var selectedVehicle: Vehicle?
     @Published var status: VehicleStatus?
     @Published var bannerMessage: String?
-    @Published var showClimateSheet = false
     @Published var showFuelSetup = false
     @Published var isRefreshing = false
+    @Published private(set) var dieselSelections: [String: String] = [:]
 
     var remoteServiceProvider: () -> RemoteVehicleService
 
+    private let dieselDefaultsKey = "TruckRemoteStart.DieselSelections"
+
     init(remoteServiceProvider: @escaping () -> RemoteVehicleService) {
         self.remoteServiceProvider = remoteServiceProvider
+        if let data = UserDefaults.standard.data(forKey: dieselDefaultsKey),
+           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            dieselSelections = decoded
+        }
     }
 
     func loadVehicles() async {
@@ -492,9 +565,20 @@ final class GarageViewModel: ObservableObject {
             }
             selectedVehicle = updated
             showFuelSetup = false
+            if type == .gas { dieselSelections[vin] = nil; persistDieselSelections() }
         } catch {
             print("Fuel update failed: \(error)")
         }
+    }
+
+    func dieselOption(for vin: String) -> DieselOption? {
+        guard let id = dieselSelections[vin] else { return nil }
+        return DieselOption.all.first(where: { $0.id == id })
+    }
+
+    func setDieselOption(_ option: DieselOption, for vin: String) {
+        dieselSelections[vin] = option.id
+        persistDieselSelections()
     }
 
     func send(command: VehicleCommand, fuelType: FuelType?) async {
@@ -502,14 +586,17 @@ final class GarageViewModel: ObservableObject {
         let service = remoteServiceProvider()
         do {
             if command == .start, fuelType == .diesel {
-                bannerMessage = "Warming glow plugs…"
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-                    self.bannerMessage = nil
-                }
+                let option = dieselOption(for: vin) ?? DieselOption.fallback
+                bannerMessage = "Cycling glow plugs for \(option.glowPlugSeconds)s…"
+                try? await Task.sleep(nanoseconds: UInt64(option.glowPlugSeconds) * 1_000_000_000)
             }
             try await service.sendCommand(command, for: vin)
             try await refreshStatus()
+            bannerMessage = command == .start ? "Engine start sent" : nil
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                self.bannerMessage = nil
+            }
         } catch {
             print("Command failed: \(error)")
         }
@@ -520,21 +607,19 @@ final class GarageViewModel: ObservableObject {
             showFuelSetup = true
         }
     }
+
+    private func persistDieselSelections() {
+        if let data = try? JSONEncoder().encode(dieselSelections) {
+            UserDefaults.standard.set(data, forKey: dieselDefaultsKey)
+        }
+    }
 }
 
 @MainActor
-final class VehicleViewModel: ObservableObject {
-    @Published var climateTemp: Double = 72
-    @Published var defrostOn = false
-    @Published var seatHeatOn = false
-    @Published var wheelHeatOn = false
-}
-
 // MARK: - Views
 
 struct RootView: View {
     @EnvironmentObject var garageVM: GarageViewModel
-    @EnvironmentObject var vehicleVM: VehicleViewModel
     @EnvironmentObject var pushManager: PushManager
     @EnvironmentObject var configStore: ConfigStore
     @EnvironmentObject var authManager: AuthManager
@@ -561,17 +646,11 @@ struct RootView: View {
             FuelSetupView()
                 .environmentObject(garageVM)
         }
-        .sheet(isPresented: $garageVM.showClimateSheet) {
-            ClimateSheet()
-                .environmentObject(vehicleVM)
-                .environmentObject(garageVM)
-        }
     }
 }
 
 struct HomeView: View {
     @EnvironmentObject var garageVM: GarageViewModel
-    @EnvironmentObject var vehicleVM: VehicleViewModel
     @Binding var selectedTab: Int
 
     var body: some View {
@@ -657,7 +736,6 @@ struct HomeView: View {
 
 struct QuickControls: View {
     @EnvironmentObject var garageVM: GarageViewModel
-    @EnvironmentObject var vehicleVM: VehicleViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -668,7 +746,7 @@ struct QuickControls: View {
             }
             HStack(spacing: 12) {
                 PrimaryButton(title: "Start") {
-                    garageVM.showClimateSheet = true
+                    Task { await garageVM.send(command: .start, fuelType: garageVM.selectedVehicle?.fuelType) }
                 }
                 PrimaryButton(title: "Stop") { Task { await garageVM.send(command: .stop, fuelType: garageVM.selectedVehicle?.fuelType) } }
             }
@@ -689,37 +767,6 @@ struct StatusChips: View {
             StatusChip(text: "Fuel \(Int(status.fuelPercent * 100))%", systemImage: "fuelpump.fill")
             StatusChip(text: "\(Int(status.outsideTempF))°F", systemImage: "thermometer")
         }
-    }
-}
-
-struct ClimateSheet: View {
-    @EnvironmentObject var vehicleVM: VehicleViewModel
-    @EnvironmentObject var garageVM: GarageViewModel
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section(header: Text("Temperature")) {
-                    Slider(value: $vehicleVM.climateTemp, in: 60...80, step: 1) {
-                        Text("Cabin")
-                    }
-                    Text("Set to \(Int(vehicleVM.climateTemp))°F")
-                }
-                Section(header: Text("Comfort")) {
-                    Toggle("Defrost", isOn: $vehicleVM.defrostOn)
-                    Toggle("Seat Heat", isOn: $vehicleVM.seatHeatOn)
-                    Toggle("Wheel Heat", isOn: $vehicleVM.wheelHeatOn)
-                }
-                Section {
-                    PrimaryButton(title: "Start") {
-                        garageVM.showClimateSheet = false
-                        Task { await garageVM.send(command: .start, fuelType: garageVM.selectedVehicle?.fuelType) }
-                    }
-                }
-            }
-            .navigationTitle("Climate Start")
-        }
-        .presentationDetents([.medium, .large])
     }
 }
 
@@ -832,15 +879,90 @@ struct DevSettingsView: View {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject var garageVM: GarageViewModel
+    @EnvironmentObject var authManager: AuthManager
+
     @State private var valetMode = false
     @State private var requireFaceID = false
+    @State private var selectedFuel: FuelType?
+    @State private var selectedDieselId: String?
+
     var body: some View {
         NavigationStack {
             Form {
-                Toggle("Valet Mode", isOn: $valetMode)
-                Toggle("Require Face ID", isOn: $requireFaceID)
+                Section(header: Text("Vehicle")) {
+                    if let vehicle = garageVM.selectedVehicle {
+                        Picker("Fuel Type", selection: Binding(
+                            get: { selectedFuel ?? vehicle.fuelType ?? .gas },
+                            set: { newValue in
+                                selectedFuel = newValue
+                                Task { await garageVM.setFuel(type: newValue) }
+                            })) {
+                                ForEach(FuelType.allCases) { type in
+                                    Text(type.rawValue).tag(type)
+                                }
+                            }
+                        
+                        if (selectedFuel ?? vehicle.fuelType) == .diesel {
+                            Picker(
+                                "Diesel Engine",
+                                selection: Binding(
+                                    get: {
+                                        selectedDieselId
+                                            ?? garageVM.dieselOption(for: vehicle.vin)?.id
+                                            ?? DieselOption.fallback.id
+                                    },
+                                    set: { newValue in
+                                        selectedDieselId = newValue
+                                        if let option = DieselOption.all.first(where: { $0.id == newValue }) {
+                                            garageVM.setDieselOption(option, for: vehicle.vin)
+                                        }
+                                    }
+                                )
+                            ) {
+                                ForEach(DieselOption.all) { option in
+                                    Text(option.name).tag(option.id)
+                                }
+                            }
+
+                            if let option = garageVM.dieselOption(for: vehicle.vin)
+                                ?? DieselOption.all.first(where: { $0.id == selectedDieselId })
+                                ?? DieselOption.fallback {
+                                Text("Glow plugs will cycle for \(option.glowPlugSeconds) seconds before starting.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } else {
+                        Text("Select a vehicle from Home to adjust settings.")
+                    }
+                }
+
+                Section(header: Text("Security")) {
+                    Toggle("Valet Mode", isOn: $valetMode)
+                    Toggle("Require Face ID", isOn: $requireFaceID)
+                }
+
+                Section(header: Text("Account")) {
+                    Button {
+                        authManager.signInWithApple()
+                    } label: {
+                        Label("Sign in with Apple", systemImage: "apple.logo")
+                    }
+                    if authManager.accessToken != nil {
+                        Button(role: .destructive) { authManager.signOut() } label: {
+                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                    }
+                }
             }
             .navigationTitle("Settings")
+            .onAppear {
+                selectedFuel = garageVM.selectedVehicle?.fuelType
+                if let vin = garageVM.selectedVehicle?.vin {
+                    selectedDieselId = garageVM.dieselOption(for: vin)?.id
+                }
+            }
         }
     }
 }
@@ -910,7 +1032,6 @@ struct TruckRemoteStartApp: App {
     @StateObject private var authManager: AuthManager
     @StateObject private var pushManager = PushManager()
     @StateObject private var garageVM: GarageViewModel
-    @StateObject private var vehicleVM = VehicleViewModel()
 
     init() {
         let configStore = ConfigStore()
@@ -931,7 +1052,6 @@ struct TruckRemoteStartApp: App {
                 .environmentObject(authManager)
                 .environmentObject(pushManager)
                 .environmentObject(garageVM)
-                .environmentObject(vehicleVM)
                 .onAppear {
                     AppDelegate.sharedPushManager = pushManager
                     configurePushUploader()
