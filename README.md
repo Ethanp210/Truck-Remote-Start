@@ -43,4 +43,5 @@ The Developer Settings tab lets you override `Base URL`, `Client ID`, and `Redir
 - If assets appear missing, add your own icons to `Assets.xcassets/AppIcon.appiconset` using Xcode’s template filenames (e.g., `Icon-App-20x20@2x.png`, `Icon-App-20x20@3x.png`, …, `Icon-App-1024x1024@1x.png`). Keeping the file names matching the template keeps the project settings intact.
 - If the auth callback fails, confirm the URL type in **Info → URL Types** matches the runtime `Redirect Scheme` setting.
 - Push upload requires a real device and valid provisioning profile with Push Notifications capability enabled (already configured in the project).
+- If you see `no valid “aps-environment” entitlement string found for application` or Sign in with Apple errors, open **Signing & Capabilities** and make sure your Team is selected so the bundled `TruckRemoteStart.entitlements` file (Push Notifications + Sign in with Apple) is applied to the build. If you change the bundle identifier, update the provisioning profile accordingly.
 
