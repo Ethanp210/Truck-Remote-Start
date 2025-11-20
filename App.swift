@@ -1,7 +1,6 @@
 import SwiftUI
 import MapKit
 import UIKit
-import UserNotifications
 
 // MARK: - Models
 
@@ -217,7 +216,6 @@ protocol RemoteVehicleService {
     func updateFuelType(for vin: String, fuelType: FuelType) async throws -> Vehicle
     func fetchStatus(for vin: String) async throws -> VehicleStatus
     func sendCommand(_ command: VehicleCommand, for vin: String) async throws
-    func uploadPushToken(_ tokenHex: String) async throws
 }
 
 enum VehicleCommand: String { case lock, unlock, start, stop, honkflash }
@@ -241,11 +239,6 @@ struct LiveRemoteVehicleService: RemoteVehicleService {
     func sendCommand(_ command: VehicleCommand, for vin: String) async throws {
         try await client.send(path: "/v1/vehicles/\(vin)/commands/\(command.rawValue)", method: .post)
     }
-
-    func uploadPushToken(_ tokenHex: String) async throws {
-        struct Body: Encodable { let token: String }
-        try await client.send(path: "/v1/push/register", method: .post, body: Body(token: tokenHex))
-    }
 }
 
 #if DEBUG
@@ -260,59 +253,8 @@ struct MockRemoteVehicleService: RemoteVehicleService {
         VehicleStatus(isLocked: true, engineOn: false, fuelPercent: 0.62, batteryVoltage: 12.3, outsideTempF: 72, cabinTempF: 70, location: .init(latitude: 37.3349, longitude: -122.0090))
     }
     func sendCommand(_ command: VehicleCommand, for vin: String) async throws {}
-    func uploadPushToken(_ tokenHex: String) async throws {}
 }
 #endif
-
-// MARK: - Push
-
-final class PushManager: NSObject, ObservableObject {
-    @Published var deviceTokenHex: String?
-    var uploader: ((String) async throws -> Void)?
-
-    func registerForPushNotifications() {
-        #if targetEnvironment(simulator)
-        return
-        #endif
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-            guard granted else { return }
-            DispatchQueue.main.async {
-                UIApplication.shared.registerForRemoteNotifications()
-            }
-        }
-    }
-
-    func update(deviceTokenHex: String) {
-        deviceTokenHex.withCString { _ in }
-        DispatchQueue.main.async {
-            self.deviceTokenHex = deviceTokenHex
-            Task { try? await self.uploader?(deviceTokenHex) }
-        }
-    }
-
-    func uploadManually() {
-        guard let token = deviceTokenHex else { return }
-        Task { try? await uploader?(token) }
-    }
-}
-
-final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    static weak var sharedPushManager: PushManager?
-
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
-        UNUserNotificationCenter.current().delegate = self
-        return true
-    }
-
-    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        let token = deviceToken.map { String(format: "%02x", $0) }.joined()
-        AppDelegate.sharedPushManager?.update(deviceTokenHex: token)
-    }
-
-    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print("Push registration failed: \(error)")
-    }
-}
 
 // MARK: - View Models
 
@@ -424,7 +366,6 @@ final class GarageViewModel: ObservableObject {
 
 struct RootView: View {
     @EnvironmentObject var garageVM: GarageViewModel
-    @EnvironmentObject var pushManager: PushManager
     @EnvironmentObject var configStore: ConfigStore
 
     @State private var selectedTab = 0
@@ -635,7 +576,6 @@ struct VehicleLocation: Identifiable {
 struct DevSettingsView: View {
     @EnvironmentObject var configStore: ConfigStore
     @EnvironmentObject var garageVM: GarageViewModel
-    @EnvironmentObject var pushManager: PushManager
 
     @State private var baseURLString: String = ""
     @State private var clientId: String = ""
@@ -651,14 +591,6 @@ struct DevSettingsView: View {
                     .textInputAutocapitalization(.never)
                 PrimaryButton(title: "Apply Changes") {
                     applyChanges()
-                }
-            }
-            Section(header: Text("Push")) {
-                PrimaryButton(title: "Upload Push Token Manually") {
-                    pushManager.uploadManually()
-                }
-                if let token = pushManager.deviceTokenHex {
-                    Text(token).font(.footnote).textSelection(.enabled)
                 }
             }
         }
@@ -834,11 +766,8 @@ struct Banner: View {
 
 @main
 struct TruckRemoteStartApp: App {
-    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-
     @StateObject private var configStore: ConfigStore
     @StateObject private var authManager: AuthManager
-    @StateObject private var pushManager = PushManager()
     @StateObject private var garageVM: GarageViewModel
 
     init() {
@@ -857,36 +786,11 @@ struct TruckRemoteStartApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(configStore)
-                .environmentObject(pushManager)
                 .environmentObject(garageVM)
-                .onAppear {
-                    AppDelegate.sharedPushManager = pushManager
-                    configurePushUploader()
-                }
-                .task {
-                    pushManager.registerForPushNotifications()
-                }
                 .onChange(of: configStore.config) { _ in
-                    configurePushUploader()
                     Task { await garageVM.loadVehicles() }
                 }
         }
-        .onChange(of: pushManager.deviceTokenHex) { _ in
-            Task { await uploadPushTokenIfAuthorized() }
-        }
-    }
-
-    private func configurePushUploader() {
-        let client = APIClient(config: configStore.config, tokenProvider: { authManager.accessToken })
-        pushManager.uploader = { hex in
-            try await LiveRemoteVehicleService(client: client).uploadPushToken(hex)
-        }
-    }
-
-    private func uploadPushTokenIfAuthorized() async {
-        guard authManager.accessToken != nil, let token = pushManager.deviceTokenHex else { return }
-        configurePushUploader()
-        try? await pushManager.uploader?(token)
     }
 }
 
