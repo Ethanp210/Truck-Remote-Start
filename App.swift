@@ -28,6 +28,13 @@ struct EngineOption: Identifiable, Codable, Hashable {
     ]
 
     static var fallback: EngineOption { all.first ?? EngineOption(id: "default", name: "Gasoline", fuelType: .gas, glowPlugSeconds: 0) }
+
+    static func fallback(for fuelType: FuelType?) -> EngineOption {
+        if let fuelType, let match = all.first(where: { $0.fuelType == fuelType }) {
+            return match
+        }
+        return fallback
+    }
 }
 
 struct Vehicle: Identifiable, Hashable, Codable {
@@ -410,7 +417,9 @@ final class GarageViewModel: ObservableObject {
         do {
             commandInFlight = command
             if command == .start {
-                let engine = engineOption(for: vehicle.id) ?? vehicle.engineOption ?? EngineOption.fallback
+                let engine = engineOption(for: vehicle.id)
+                ?? vehicle.engineOption
+                ?? EngineOption.fallback(for: vehicle.fuelType)
                 if engine.needsGlowPlugs {
                     let temp = status?.outsideTempF ?? 0
                     let shouldGlow = temp <= 50
