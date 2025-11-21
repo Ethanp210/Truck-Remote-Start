@@ -21,6 +21,7 @@ final class RemoteCommandViewModel: ObservableObject {
     @Published var state: CommandState = .idle
     @Published var recentCommands: [RecentCommand] = []
     @Published var glowPlugDiagnostics: GlowPlugDiagnostics?
+    @Published var isWarmingGlowPlugs: Bool = false
 
     var vehicleProvider: () -> Vehicle?
     var statusProvider: () -> VehicleStatus?
@@ -79,6 +80,7 @@ final class RemoteCommandViewModel: ObservableObject {
         let engine = vehicle.engineOption ?? EngineOption.fallback(for: vehicle.fuelType)
         guard engine.needsGlowPlugs else {
             glowPlugDiagnostics = nil
+            isWarmingGlowPlugs = false
             return
         }
         let temp = statusProvider()?.outsideTempF ?? 0
@@ -86,12 +88,17 @@ final class RemoteCommandViewModel: ObservableObject {
         let shouldGlow = temp <= threshold
         let location = statusProvider()?.location ?? .init(latitude: 0, longitude: 0)
         glowPlugDiagnostics = GlowPlugDiagnostics(timestamp: Date(), outsideTempF: temp, location: location, threshold: threshold, engineName: engine.name, shouldRunGlowPlugs: shouldGlow)
-        guard shouldGlow else { return }
+        guard shouldGlow else {
+            isWarmingGlowPlugs = false
+            return
+        }
+        isWarmingGlowPlugs = true
         for remaining in stride(from: engine.glowPlugSeconds, through: 1, by: -1) {
             try await Task.sleep(nanoseconds: 1_000_000_000)
             state = .sending(command: .start)
             print("Glow plugs warming: \(remaining)s")
         }
+        isWarmingGlowPlugs = false
     }
 
     private func successMessage(for command: CommandType) -> String {
