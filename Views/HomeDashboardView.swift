@@ -111,7 +111,7 @@ struct HomeDashboardView: View {
                     statusCard(title: "Updated", icon: "clock.arrow.circlepath", value: updated.formatted(.relative(presentation: .named)))
                 }
             }
-            if commandViewModel.glowPlugDiagnostics?.shouldRunGlowPlugs == true {
+            if commandViewModel.isWarmingGlowPlugs {
                 Text("Warming glow plugs…")
                     .font(.footnote).foregroundColor(.yellow)
             }
@@ -216,6 +216,9 @@ struct HomeDashboardView: View {
     }
 
     private var engineText: String {
+        if commandViewModel.isWarmingGlowPlugs {
+            return "Warming glow plugs…"
+        }
         guard let status = statusViewModel.status else { return "--" }
         return status.engineOn ? "Running" : "Off"
     }
