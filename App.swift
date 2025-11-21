@@ -10,19 +10,24 @@ enum FuelType: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct DieselOption: Identifiable, Codable, Hashable {
+struct EngineOption: Identifiable, Codable, Hashable {
     let id: String
     let name: String
+    let fuelType: FuelType
     let glowPlugSeconds: Int
 
-    static let all: [DieselOption] = [
-        DieselOption(id: "powerstroke_67", name: "Ford Power Stroke 6.7L", glowPlugSeconds: 6),
-        DieselOption(id: "duramax_66", name: "GM Duramax 6.6L", glowPlugSeconds: 5),
-        DieselOption(id: "cummins_67", name: "Ram Cummins 6.7L", glowPlugSeconds: 7),
-        DieselOption(id: "maxxforce_75", name: "Navistar MaxxForce 7.5L", glowPlugSeconds: 8)
+    var needsGlowPlugs: Bool { fuelType == .diesel }
+
+    static let all: [EngineOption] = [
+        EngineOption(id: "gas_v8", name: "Gasoline V8", fuelType: .gas, glowPlugSeconds: 0),
+        EngineOption(id: "gas_v6", name: "Gasoline V6", fuelType: .gas, glowPlugSeconds: 0),
+        EngineOption(id: "powerstroke_67", name: "Ford Power Stroke 6.7L", fuelType: .diesel, glowPlugSeconds: 6),
+        EngineOption(id: "duramax_66", name: "GM Duramax 6.6L", fuelType: .diesel, glowPlugSeconds: 5),
+        EngineOption(id: "cummins_67", name: "Ram Cummins 6.7L", fuelType: .diesel, glowPlugSeconds: 7),
+        EngineOption(id: "maxxforce_75", name: "Navistar MaxxForce 7.5L", fuelType: .diesel, glowPlugSeconds: 8)
     ]
 
-    static var fallback: DieselOption { all.first ?? DieselOption(id: "default", name: "Diesel", glowPlugSeconds: 5) }
+    static var fallback: EngineOption { all.first ?? EngineOption(id: "default", name: "Gasoline", fuelType: .gas, glowPlugSeconds: 0) }
 }
 
 struct Vehicle: Identifiable, Hashable, Codable {
@@ -33,6 +38,12 @@ struct Vehicle: Identifiable, Hashable, Codable {
     var nickname: String
     var imageName: String
     var fuelType: FuelType?
+    var engineId: String?
+
+    var engineOption: EngineOption? {
+        guard let engineId else { return nil }
+        return EngineOption.all.first(where: { $0.id == engineId })
+    }
 }
 
 // IMPORTANT: No global Codable for CLLocationCoordinate2D!
@@ -208,11 +219,24 @@ struct AnyEncodable: Encodable {
     func encode(to encoder: Encoder) throws { try encodeFunc(encoder) }
 }
 
+struct WeatherClient {
+    func temperature(for coordinate: CLLocationCoordinate2D) async -> Double {
+        // Placeholder weather lookup based on location so we avoid relying on external APIs
+        let base = 60.0
+        let latFactor = coordinate.latitude.truncatingRemainder(dividingBy: 10) * 0.8
+        let lonFactor = coordinate.longitude.truncatingRemainder(dividingBy: 10) * 0.4
+        let month = Calendar.current.component(.month, from: Date())
+        let seasonalOffset = (5...9).contains(month) ? 10.0 : -5.0
+        return max(-20, min(110, base + latFactor - lonFactor + seasonalOffset))
+    }
+}
+
 // MARK: - Remote Service
 
 protocol RemoteVehicleService {
     func fetchVehicles() async throws -> [Vehicle]
     func updateFuelType(for vehicle: Vehicle, fuelType: FuelType) async throws -> Vehicle
+    func updateVehicle(_ vehicle: Vehicle) async throws -> Vehicle
     func fetchStatus(for vehicle: Vehicle) async throws -> VehicleStatus
     func sendCommand(_ command: VehicleCommand, for vehicle: Vehicle) async throws
 }
@@ -224,15 +248,16 @@ final class LocalRemoteVehicleService: RemoteVehicleService {
 
     private var vehicles: [Vehicle]
     private var statuses: [UUID: VehicleStatus]
+    private let weatherClient = WeatherClient()
 
     init() {
         let defaultVehicles = [
-            Vehicle(id: UUID(), make: "Ford", model: "F-150", year: 2023, nickname: "Work Truck", imageName: "car.fill", fuelType: .diesel),
-            Vehicle(id: UUID(), make: "Ram", model: "1500", year: 2022, nickname: "Family Hauler", imageName: "car.2.fill", fuelType: .gas),
-            Vehicle(id: UUID(), make: "GMC", model: "Sierra", year: 2021, nickname: "Trail Rig", imageName: "car.circle.fill", fuelType: .diesel)
+            Vehicle(id: UUID(), make: "Ford", model: "F-150", year: 2023, nickname: "Work Truck", imageName: "car.fill", fuelType: .diesel, engineId: EngineOption.all.first?.id),
+            Vehicle(id: UUID(), make: "Ram", model: "1500", year: 2022, nickname: "Family Hauler", imageName: "car.2.fill", fuelType: .gas, engineId: EngineOption.all.first(where: { $0.fuelType == .gas })?.id),
+            Vehicle(id: UUID(), make: "GMC", model: "Sierra", year: 2021, nickname: "Trail Rig", imageName: "car.circle.fill", fuelType: .diesel, engineId: EngineOption.all.first(where: { $0.needsGlowPlugs })?.id)
         ]
 
-        let defaultStatus = VehicleStatus(isLocked: true, engineOn: false, fuelPercent: 0.68, batteryVoltage: 12.4, outsideTempF: 70, cabinTempF: 68, location: .init(latitude: 37.3349, longitude: -122.0090))
+        let defaultStatus = VehicleStatus(isLocked: true, engineOn: false, fuelPercent: 0.68, batteryVoltage: 12.4, outsideTempF: 70, cabinTempF: nil, location: .init(latitude: 37.3349, longitude: -122.0090))
 
         self.vehicles = defaultVehicles
         self.statuses = Dictionary(uniqueKeysWithValues: defaultVehicles.map { ($0.id, defaultStatus) })
@@ -240,6 +265,13 @@ final class LocalRemoteVehicleService: RemoteVehicleService {
 
     func fetchVehicles() async throws -> [Vehicle] {
         vehicles
+    }
+
+    func updateVehicle(_ vehicle: Vehicle) async throws -> Vehicle {
+        if let idx = vehicles.firstIndex(where: { $0.id == vehicle.id }) {
+            vehicles[idx] = vehicle
+        }
+        return vehicle
     }
 
     func updateFuelType(for vehicle: Vehicle, fuelType: FuelType) async throws -> Vehicle {
@@ -252,7 +284,12 @@ final class LocalRemoteVehicleService: RemoteVehicleService {
     }
 
     func fetchStatus(for vehicle: Vehicle) async throws -> VehicleStatus {
-        statuses[vehicle.id] ?? VehicleStatus(isLocked: true, engineOn: false, fuelPercent: 0.5, batteryVoltage: 12.0, outsideTempF: 70, cabinTempF: 68, location: .init(latitude: 37.3349, longitude: -122.0090))
+        let baseStatus = statuses[vehicle.id] ?? VehicleStatus(isLocked: true, engineOn: false, fuelPercent: 0.5, batteryVoltage: 12.0, outsideTempF: 70, cabinTempF: nil, location: .init(latitude: 37.3349, longitude: -122.0090))
+        let updatedTemp = await weatherClient.temperature(for: baseStatus.location)
+        var updated = baseStatus
+        updated.outsideTempF = updatedTemp
+        updated.cabinTempF = nil
+        return updated
     }
 
     func sendCommand(_ command: VehicleCommand, for vehicle: Vehicle) async throws {
@@ -283,19 +320,19 @@ final class GarageViewModel: ObservableObject {
     @Published var selectedVehicle: Vehicle?
     @Published var status: VehicleStatus?
     @Published var bannerMessage: String?
-    @Published var showFuelSetup = false
     @Published var isRefreshing = false
-    @Published private(set) var dieselSelections: [UUID: String] = [:]
+    @Published private(set) var engineSelections: [UUID: String] = [:]
+    @Published private(set) var commandInFlight: VehicleCommand?
 
     var remoteServiceProvider: () -> RemoteVehicleService
 
-    private let dieselDefaultsKey = "TruckRemoteStart.DieselSelections"
+    private let engineDefaultsKey = "TruckRemoteStart.EngineSelections"
 
     init(remoteServiceProvider: @escaping () -> RemoteVehicleService) {
         self.remoteServiceProvider = remoteServiceProvider
-        if let data = UserDefaults.standard.data(forKey: dieselDefaultsKey),
+        if let data = UserDefaults.standard.data(forKey: engineDefaultsKey),
            let decoded = try? JSONDecoder().decode([UUID: String].self, from: data) {
-            dieselSelections = decoded
+            engineSelections = decoded
         }
     }
 
@@ -307,7 +344,12 @@ final class GarageViewModel: ObservableObject {
             let fetched = try await service.fetchVehicles()
             vehicles = fetched
             if selectedVehicle == nil { selectedVehicle = fetched.first }
-            checkFuelPrompt()
+            for vehicle in fetched {
+                if let engineId = vehicle.engineId, engineSelections[vehicle.id] == nil {
+                    engineSelections[vehicle.id] = engineId
+                }
+            }
+            persistEngineSelections()
             try await refreshStatus()
         } catch {
             print("Failed to load vehicles: \(error)")
@@ -320,40 +362,62 @@ final class GarageViewModel: ObservableObject {
         status = try await service.fetchStatus(for: vehicle)
     }
 
-    func setFuel(type: FuelType) async {
-        guard let vehicle = selectedVehicle else { return }
+    func engineOption(for vehicleId: UUID) -> EngineOption? {
+        guard let id = engineSelections[vehicleId] else { return nil }
+        return EngineOption.all.first(where: { $0.id == id })
+    }
+
+    func setEngineOption(_ option: EngineOption, for vehicleId: UUID) async {
+        engineSelections[vehicleId] = option.id
+        persistEngineSelections()
+        guard var vehicle = vehicles.first(where: { $0.id == vehicleId }) else { return }
+        vehicle.engineId = option.id
+        vehicle.fuelType = option.fuelType
         do {
             let service = remoteServiceProvider()
-            let updated = try await service.updateFuelType(for: vehicle, fuelType: type)
-            if let index = vehicles.firstIndex(where: { $0.id == vehicle.id }) {
+            let updated = try await service.updateVehicle(vehicle)
+            if let index = vehicles.firstIndex(where: { $0.id == vehicleId }) {
                 vehicles[index] = updated
             }
-            selectedVehicle = updated
-            showFuelSetup = false
-            if type == .gas { dieselSelections[vehicle.id] = nil; persistDieselSelections() }
+            if selectedVehicle?.id == vehicleId { selectedVehicle = updated }
         } catch {
-            print("Fuel update failed: \(error)")
+            print("Failed to update engine: \(error)")
         }
     }
 
-    func dieselOption(for vehicleId: UUID) -> DieselOption? {
-        guard let id = dieselSelections[vehicleId] else { return nil }
-        return DieselOption.all.first(where: { $0.id == id })
+    func updateVehicleDetails(make: String, model: String, year: Int, nickname: String) async {
+        guard var vehicle = selectedVehicle else { return }
+        vehicle.make = make
+        vehicle.model = model
+        vehicle.year = year
+        vehicle.nickname = nickname
+        do {
+            let service = remoteServiceProvider()
+            let updated = try await service.updateVehicle(vehicle)
+            if let idx = vehicles.firstIndex(where: { $0.id == vehicle.id }) {
+                vehicles[idx] = updated
+            }
+            selectedVehicle = updated
+        } catch {
+            print("Failed to update vehicle details: \(error)")
+        }
     }
 
-    func setDieselOption(_ option: DieselOption, for vehicleId: UUID) {
-        dieselSelections[vehicleId] = option.id
-        persistDieselSelections()
-    }
-
-    func send(command: VehicleCommand, fuelType: FuelType?) async {
+    func send(command: VehicleCommand) async {
         guard let vehicle = selectedVehicle else { return }
+        if commandInFlight != nil { return }
         let service = remoteServiceProvider()
         do {
-            if command == .start, fuelType == .diesel {
-                let option = dieselOption(for: vehicle.id) ?? DieselOption.fallback
-                bannerMessage = "Cycling glow plugs for \(option.glowPlugSeconds)s…"
-                try? await Task.sleep(nanoseconds: UInt64(option.glowPlugSeconds) * 1_000_000_000)
+            commandInFlight = command
+            if command == .start {
+                let engine = engineOption(for: vehicle.id) ?? vehicle.engineOption ?? EngineOption.fallback
+                if engine.needsGlowPlugs {
+                    let temp = status?.outsideTempF ?? 0
+                    let shouldGlow = temp <= 50
+                    if shouldGlow {
+                        await runGlowPlugCountdown(seconds: engine.glowPlugSeconds)
+                    }
+                }
             }
             try await service.sendCommand(command, for: vehicle)
             try await refreshStatus()
@@ -365,17 +429,20 @@ final class GarageViewModel: ObservableObject {
         } catch {
             print("Command failed: \(error)")
         }
+        commandInFlight = nil
     }
 
-    func checkFuelPrompt() {
-        if let vehicle = selectedVehicle, vehicle.fuelType == nil {
-            showFuelSetup = true
+    private func runGlowPlugCountdown(seconds: Int) async {
+        guard seconds > 0 else { return }
+        for remaining in stride(from: seconds, through: 1, by: -1) {
+            await MainActor.run { bannerMessage = "Cycling glow plugs for \(remaining)s" }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
     }
 
-    private func persistDieselSelections() {
-        if let data = try? JSONEncoder().encode(dieselSelections) {
-            UserDefaults.standard.set(data, forKey: dieselDefaultsKey)
+    private func persistEngineSelections() {
+        if let data = try? JSONEncoder().encode(engineSelections) {
+            UserDefaults.standard.set(data, forKey: engineDefaultsKey)
         }
     }
 }
@@ -406,10 +473,6 @@ struct RootView: View {
                     .tag(3)
             }
             .preferredColorScheme(.dark)
-            .sheet(isPresented: $garageVM.showFuelSetup) {
-                FuelSetupView()
-                    .environmentObject(garageVM)
-            }
         }
         .onAppear {
             Task { await garageVM.loadVehicles() }
@@ -487,9 +550,7 @@ struct HomeView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Battery: \(String(format: "%.1f", status.batteryVoltage))V")
-                    if let cabin = status.cabinTempF {
-                        Text("Cabin: \(Int(cabin))°F")
-                    }
+                    Text("Outside: \(Int(status.outsideTempF))°F (via weather)")
                 }
                 Spacer()
             }
@@ -507,20 +568,29 @@ struct QuickControls: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Quick Controls").font(.headline)
             HStack(spacing: 12) {
-                PrimaryButton(title: "Lock") { Task { await garageVM.send(command: .lock, fuelType: garageVM.selectedVehicle?.fuelType) } }
-                PrimaryButton(title: "Unlock") { Task { await garageVM.send(command: .unlock, fuelType: garageVM.selectedVehicle?.fuelType) } }
+                PrimaryButton(title: "Lock", isDisabled: garageVM.commandInFlight != nil) { Task { await garageVM.send(command: .lock) } }
+                PrimaryButton(title: "Unlock", isDisabled: garageVM.commandInFlight != nil) { Task { await garageVM.send(command: .unlock) } }
             }
-            HStack(spacing: 12) {
-                PrimaryButton(title: "Start") {
-                    Task { await garageVM.send(command: .start, fuelType: garageVM.selectedVehicle?.fuelType) }
+            PrimaryButton(title: startStopTitle, isDisabled: garageVM.commandInFlight != nil) {
+                Task {
+                    if garageVM.status?.engineOn == true {
+                        await garageVM.send(command: .stop)
+                    } else {
+                        await garageVM.send(command: .start)
+                    }
                 }
-                PrimaryButton(title: "Stop") { Task { await garageVM.send(command: .stop, fuelType: garageVM.selectedVehicle?.fuelType) } }
             }
-            PrimaryButton(title: "Honk & Flash") { Task { await garageVM.send(command: .honkflash, fuelType: garageVM.selectedVehicle?.fuelType) } }
+            PrimaryButton(title: "Honk & Flash", isDisabled: garageVM.commandInFlight != nil) { Task { await garageVM.send(command: .honkflash) } }
         }
         .padding()
         .background(Color(.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var startStopTitle: String {
+        if garageVM.commandInFlight == .start { return "Starting…" }
+        if garageVM.commandInFlight == .stop { return "Stopping…" }
+        return garageVM.status?.engineOn == true ? "Stop Engine" : "Start Engine"
     }
 }
 
@@ -530,29 +600,7 @@ struct StatusChips: View {
         HStack(spacing: 8) {
             StatusChip(text: status.isLocked ? "Locked" : "Unlocked", systemImage: status.isLocked ? "lock.fill" : "lock.open.fill")
             StatusChip(text: status.engineOn ? "Engine On" : "Engine Off", systemImage: "engine.combustion")
-            StatusChip(text: "Fuel \(Int(status.fuelPercent * 100))%", systemImage: "fuelpump.fill")
             StatusChip(text: "\(Int(status.outsideTempF))°F", systemImage: "thermometer")
-        }
-    }
-}
-
-struct FuelSetupView: View {
-    @EnvironmentObject var garageVM: GarageViewModel
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                Text("Select Fuel Type").font(.title2).bold()
-                Text("Choose the fuel type for this vehicle to personalize warming and start behavior.")
-                    .multilineTextAlignment(.center)
-                    .padding()
-                HStack(spacing: 16) {
-                    PrimaryButton(title: "Gas") { Task { await garageVM.setFuel(type: .gas) } }
-                    PrimaryButton(title: "Diesel") { Task { await garageVM.setFuel(type: .diesel) } }
-                }
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Fuel Setup")
         }
     }
 }
@@ -632,8 +680,11 @@ struct SettingsView: View {
     @State private var valetMode = false
     @State private var requireFaceID = false
     @State private var selectedVehicleId: UUID?
-    @State private var selectedFuel: FuelType?
-    @State private var selectedDieselId: String?
+    @State private var nickname: String = ""
+    @State private var make: String = ""
+    @State private var model: String = ""
+    @State private var yearText: String = ""
+    @State private var selectedEngineId: String?
 
     var body: some View {
         NavigationStack {
@@ -647,10 +698,7 @@ struct SettingsView: View {
                             set: { newValue in
                                 selectedVehicleId = newValue
                                 guard let vehicle = garageVM.vehicles.first(where: { $0.id == newValue }) else { return }
-                                garageVM.selectedVehicle = vehicle
-                                selectedFuel = vehicle.fuelType ?? .gas
-                                selectedDieselId = garageVM.dieselOption(for: vehicle.id)?.id
-                                Task { try? await garageVM.refreshStatus() }
+                                applySelection(vehicle)
                             }
                         )) {
                             ForEach(garageVM.vehicles, id: \.id) { vehicle in
@@ -659,48 +707,41 @@ struct SettingsView: View {
                         }
 
                         if let vehicle = garageVM.selectedVehicle ?? garageVM.vehicles.first(where: { $0.id == selectedVehicleId }) {
-                            Picker("Fuel Type", selection: Binding(
-                                get: { selectedFuel ?? vehicle.fuelType ?? .gas },
+                            TextField("Nickname", text: $nickname)
+                            TextField("Make", text: $make)
+                            TextField("Model", text: $model)
+                            TextField("Year", text: $yearText)
+                                .keyboardType(.numberPad)
+
+                            Picker("Engine", selection: Binding(
+                                get: {
+                                    selectedEngineId
+                                        ?? garageVM.engineOption(for: vehicle.id)?.id
+                                        ?? vehicle.engineOption?.id
+                                        ?? EngineOption.fallback.id
+                                },
                                 set: { newValue in
-                                    selectedFuel = newValue
-                                    Task { await garageVM.setFuel(type: newValue) }
-                                })) {
-                                    ForEach(FuelType.allCases) { type in
-                                        Text(type.rawValue).tag(type)
+                                    selectedEngineId = newValue
+                                    if let option = EngineOption.all.first(where: { $0.id == newValue }) {
+                                        Task { await garageVM.setEngineOption(option, for: vehicle.id) }
                                     }
                                 }
-
-                            if (selectedFuel ?? vehicle.fuelType) == .diesel {
-                                Picker(
-                                    "Diesel Engine",
-                                    selection: Binding(
-                                        get: {
-                                            selectedDieselId
-                                                ?? garageVM.dieselOption(for: vehicle.id)?.id
-                                                ?? DieselOption.fallback.id
-                                        },
-                                        set: { newValue in
-                                            selectedDieselId = newValue
-                                            if let option = DieselOption.all.first(where: { $0.id == newValue }) {
-                                                garageVM.setDieselOption(option, for: vehicle.id)
-                                            }
-                                        }
-                                    )
-                                ) {
-                                    ForEach(DieselOption.all) { option in
-                                        Text(option.name).tag(option.id)
-                                    }
+                            )) {
+                                ForEach(EngineOption.all) { option in
+                                    Text(option.name).tag(option.id)
                                 }
+                            }
 
-                                if let option = garageVM.dieselOption(for: vehicle.id)
-                                    ?? DieselOption.all.first(where: { $0.id == selectedDieselId }) {
-                                    Text("Glow plugs will cycle for \(option.glowPlugSeconds) seconds before starting.")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Text("Glow plugs will cycle for \(DieselOption.fallback.glowPlugSeconds) seconds before starting.")
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
+                            if let option = EngineOption.all.first(where: { $0.id == (selectedEngineId ?? vehicle.engineOption?.id) }) {
+                                Text(option.needsGlowPlugs ? "Glow plugs will run automatically when cold." : "No glow plug cycle needed.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            PrimaryButton(title: "Save Vehicle Details", isDisabled: Int(yearText) == nil || yearText.isEmpty || nickname.isEmpty) {
+                                Task {
+                                    let updatedYear = Int(yearText) ?? vehicle.year
+                                    await garageVM.updateVehicleDetails(make: make, model: model, year: updatedYear, nickname: nickname)
                                 }
                             }
                         }
@@ -714,13 +755,22 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .onAppear {
-                selectedVehicleId = garageVM.selectedVehicle?.id ?? garageVM.vehicles.first?.id
-                selectedFuel = garageVM.selectedVehicle?.fuelType
-                if let vehicleId = garageVM.selectedVehicle?.id {
-                    selectedDieselId = garageVM.dieselOption(for: vehicleId)?.id
+                if let vehicle = garageVM.selectedVehicle ?? garageVM.vehicles.first {
+                    selectedVehicleId = vehicle.id
+                    applySelection(vehicle)
                 }
             }
         }
+    }
+
+    private func applySelection(_ vehicle: Vehicle) {
+        garageVM.selectedVehicle = vehicle
+        nickname = vehicle.nickname
+        make = vehicle.make
+        model = vehicle.model
+        yearText = String(vehicle.year)
+        selectedEngineId = garageVM.engineOption(for: vehicle.id)?.id ?? vehicle.engineOption?.id
+        Task { try? await garageVM.refreshStatus() }
     }
 }
 
@@ -754,16 +804,24 @@ struct StatusChip: View {
 
 struct PrimaryButton: View {
     let title: String
+    var isDisabled: Bool = false
     let action: () -> Void
+
+    init(title: String, isDisabled: Bool = false, action: @escaping () -> Void) {
+        self.title = title
+        self.isDisabled = isDisabled
+        self.action = action
+    }
     var body: some View {
         Button(action: action) {
             Text(title)
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(Color.blue)
+                .background(isDisabled ? Color.gray : Color.blue)
                 .foregroundColor(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
         }
+        .disabled(isDisabled)
     }
 }
 
