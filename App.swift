@@ -125,6 +125,15 @@ struct VehicleStatus: Equatable, Codable {
     }
 }
 
+struct GlowPlugDiagnostics {
+    let timestamp: Date
+    let outsideTempF: Double
+    let location: CLLocationCoordinate2D
+    let threshold: Double
+    let engineName: String
+    let shouldRunGlowPlugs: Bool
+}
+
 // MARK: - Configuration
 
 struct APIConfig: Codable, Equatable {
@@ -143,11 +152,27 @@ struct APIConfig: Codable, Equatable {
     var redirectURI: String { "\(redirectScheme)://callback" }
 }
 
+struct WeatherAPIConfig: Codable, Equatable {
+    var baseURL: URL
+    var apiKey: String?
+    var fallbackTemperatureF: Double
+
+    static let `default` = WeatherAPIConfig(
+        baseURL: URL(string: "https://api.open-meteo.com")!,
+        apiKey: nil,
+        fallbackTemperatureF: 68
+    )
+}
+
 final class ConfigStore: ObservableObject {
     @Published var config: APIConfig {
         didSet { persist() }
     }
+    @Published var weatherConfig: WeatherAPIConfig {
+        didSet { persistWeather() }
+    }
     private let defaultsKey = "TruckRemoteStart.APIConfig"
+    private let weatherDefaultsKey = "TruckRemoteStart.WeatherAPIConfig"
 
     init() {
         if let data = UserDefaults.standard.data(forKey: defaultsKey),
@@ -156,11 +181,24 @@ final class ConfigStore: ObservableObject {
         } else {
             config = .default
         }
+
+        if let data = UserDefaults.standard.data(forKey: weatherDefaultsKey),
+           let decoded = try? JSONDecoder().decode(WeatherAPIConfig.self, from: data) {
+            weatherConfig = decoded
+        } else {
+            weatherConfig = .default
+        }
     }
 
     private func persist() {
         if let data = try? JSONEncoder().encode(config) {
             UserDefaults.standard.set(data, forKey: defaultsKey)
+        }
+    }
+
+    private func persistWeather() {
+        if let data = try? JSONEncoder().encode(weatherConfig) {
+            UserDefaults.standard.set(data, forKey: weatherDefaultsKey)
         }
     }
 }
@@ -227,14 +265,50 @@ struct AnyEncodable: Encodable {
 }
 
 struct WeatherClient {
+    var config: WeatherAPIConfig = .default
+    var session: URLSession = .shared
+
+    struct WeatherResponse: Decodable {
+        struct Current: Decodable { let temperature_2m: Double? }
+        let current: Current?
+    }
+
     func temperature(for coordinate: CLLocationCoordinate2D) async -> Double {
-        // Placeholder weather lookup based on location so we avoid relying on external APIs
-        let base = 60.0
-        let latFactor = coordinate.latitude.truncatingRemainder(dividingBy: 10) * 0.8
-        let lonFactor = coordinate.longitude.truncatingRemainder(dividingBy: 10) * 0.4
-        let month = Calendar.current.component(.month, from: Date())
-        let seasonalOffset = (5...9).contains(month) ? 10.0 : -5.0
-        return max(-20, min(110, base + latFactor - lonFactor + seasonalOffset))
+        var components = URLComponents(url: config.baseURL.appendingPathComponent("v1/forecast"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "latitude", value: String(coordinate.latitude)),
+            URLQueryItem(name: "longitude", value: String(coordinate.longitude)),
+            URLQueryItem(name: "current", value: "temperature_2m"),
+            URLQueryItem(name: "temperature_unit", value: "fahrenheit")
+        ]
+
+        if let apiKey = config.apiKey, !apiKey.isEmpty {
+            components?.queryItems?.append(URLQueryItem(name: "apikey", value: apiKey))
+        }
+
+        guard let url = components?.url else {
+            print("WeatherClient: failed to build URL, falling back to default temperature")
+            return config.fallbackTemperatureF
+        }
+
+        do {
+            let (data, response) = try await session.data(from: url)
+            guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
+                print("WeatherClient: received non-success status \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+                return config.fallbackTemperatureF
+            }
+
+            let decoded = try JSONDecoder().decode(WeatherResponse.self, from: data)
+            if let temp = decoded.current?.temperature_2m {
+                return temp
+            }
+
+            print("WeatherClient: no temperature in response, using fallback")
+            return config.fallbackTemperatureF
+        } catch {
+            print("WeatherClient: request failed with error \(error), using fallback")
+            return config.fallbackTemperatureF
+        }
     }
 }
 
@@ -250,14 +324,70 @@ protocol RemoteVehicleService {
 
 enum VehicleCommand: String { case lock, unlock, start, stop, honkflash }
 
-final class LocalRemoteVehicleService: RemoteVehicleService {
-    static let shared = LocalRemoteVehicleService()
+protocol LocationProviding {
+    func currentLocation() async -> CLLocationCoordinate2D?
+}
 
+final class LocationProvider: NSObject, LocationProviding, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    private var continuation: CheckedContinuation<CLLocationCoordinate2D?, Never>?
+
+    override init() {
+        super.init()
+        manager.delegate = self
+    }
+
+    func currentLocation() async -> CLLocationCoordinate2D? {
+        let status = manager.authorizationStatus
+        switch status {
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .denied, .restricted:
+            return nil
+        default:
+            break
+        }
+
+        manager.requestLocation()
+        return await withCheckedContinuation { continuation in
+            if let existing = self.continuation {
+                existing.resume(returning: nil)
+            }
+            self.continuation = continuation
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        continuation?.resume(returning: locations.first?.coordinate)
+        continuation = nil
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        print("LocationProvider error: \(error)")
+        continuation?.resume(returning: nil)
+        continuation = nil
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if manager.authorizationStatus == .denied || manager.authorizationStatus == .restricted {
+            continuation?.resume(returning: nil)
+            continuation = nil
+        }
+    }
+}
+
+final class LocalRemoteVehicleService: RemoteVehicleService {
     private var vehicles: [Vehicle]
     private var statuses: [UUID: VehicleStatus]
-    private let weatherClient = WeatherClient()
+    private let locationProvider: LocationProviding
+    private let weatherConfigProvider: () -> WeatherAPIConfig
 
-    init() {
+    private var weatherClient: WeatherClient { WeatherClient(config: weatherConfigProvider()) }
+
+    init(locationProvider: LocationProviding = LocationProvider(),
+         weatherConfigProvider: @escaping () -> WeatherAPIConfig = { .default }) {
+        self.locationProvider = locationProvider
+        self.weatherConfigProvider = weatherConfigProvider
         let defaultVehicles = [
             Vehicle(id: UUID(), make: "Ford", model: "F-150", year: 2023, nickname: "Work Truck", imageName: "car.fill", fuelType: .diesel, engineId: EngineOption.all.first?.id),
             Vehicle(id: UUID(), make: "Ram", model: "1500", year: 2022, nickname: "Family Hauler", imageName: "car.2.fill", fuelType: .gas, engineId: EngineOption.all.first(where: { $0.fuelType == .gas })?.id),
@@ -291,12 +421,17 @@ final class LocalRemoteVehicleService: RemoteVehicleService {
     }
 
     func fetchStatus(for vehicle: Vehicle) async throws -> VehicleStatus {
-        let baseStatus = statuses[vehicle.id] ?? VehicleStatus(isLocked: true, engineOn: false, fuelPercent: 0.5, batteryVoltage: 12.0, outsideTempF: 70, cabinTempF: nil, location: .init(latitude: 37.3349, longitude: -122.0090))
+        var baseStatus = statuses[vehicle.id] ?? VehicleStatus(isLocked: true, engineOn: false, fuelPercent: 0.5, batteryVoltage: 12.0, outsideTempF: 70, cabinTempF: nil, location: .init(latitude: 37.3349, longitude: -122.0090))
+
+        if let liveLocation = await locationProvider.currentLocation() {
+            baseStatus.location = liveLocation
+            statuses[vehicle.id] = baseStatus
+        }
+
         let updatedTemp = await weatherClient.temperature(for: baseStatus.location)
-        var updated = baseStatus
-        updated.outsideTempF = updatedTemp
-        updated.cabinTempF = nil
-        return updated
+        baseStatus.outsideTempF = updatedTemp
+        baseStatus.cabinTempF = nil
+        return baseStatus
     }
 
     func sendCommand(_ command: VehicleCommand, for vehicle: Vehicle) async throws {
@@ -328,6 +463,7 @@ final class GarageViewModel: ObservableObject {
     @Published var status: VehicleStatus?
     @Published var bannerMessage: String?
     @Published var isRefreshing = false
+    @Published var glowPlugDiagnostics: GlowPlugDiagnostics?
     @Published private(set) var engineSelections: [UUID: String] = [:]
     @Published private(set) var commandInFlight: VehicleCommand?
 
@@ -422,10 +558,22 @@ final class GarageViewModel: ObservableObject {
                 ?? EngineOption.fallback(for: vehicle.fuelType)
                 if engine.needsGlowPlugs {
                     let temp = status?.outsideTempF ?? 0
-                    let shouldGlow = temp <= 50
+                    let threshold = 50.0
+                    let shouldGlow = temp <= threshold
+                    let location = status?.location ?? CLLocationCoordinate2D(latitude: 0, longitude: 0)
+                    glowPlugDiagnostics = GlowPlugDiagnostics(
+                        timestamp: Date(),
+                        outsideTempF: temp,
+                        location: location,
+                        threshold: threshold,
+                        engineName: engine.name,
+                        shouldRunGlowPlugs: shouldGlow
+                    )
                     if shouldGlow {
                         await runGlowPlugCountdown(seconds: engine.glowPlugSeconds)
                     }
+                } else {
+                    glowPlugDiagnostics = nil
                 }
             }
             try await service.sendCommand(command, for: vehicle)
@@ -654,6 +802,9 @@ struct DevSettingsView: View {
     @State private var baseURLString: String = ""
     @State private var clientId: String = ""
     @State private var redirectScheme: String = ""
+    @State private var weatherURLString: String = ""
+    @State private var weatherApiKey: String = ""
+    @State private var fallbackTemp: String = ""
 
     var body: some View {
         Form {
@@ -667,12 +818,43 @@ struct DevSettingsView: View {
                     applyChanges()
                 }
             }
+
+            Section(header: Text("Weather")) {
+                TextField("Weather Base URL", text: $weatherURLString)
+                    .textInputAutocapitalization(.never)
+                TextField("API Key (optional)", text: $weatherApiKey)
+                    .textInputAutocapitalization(.never)
+                TextField("Fallback Temp (F)", text: $fallbackTemp)
+                    .keyboardType(.decimalPad)
+                PrimaryButton(title: "Save Weather Settings") {
+                    applyWeatherChanges()
+                }
+            }
+
+            Section(header: Text("Diagnostics")) {
+                if let diagnostics = garageVM.glowPlugDiagnostics {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Engine: \(diagnostics.engineName)")
+                        Text(String(format: "Outside Temp: %.1f°F", diagnostics.outsideTempF))
+                        Text(String(format: "Threshold: %.1f°F", diagnostics.threshold))
+                        Text(String(format: "Location: %.4f, %.4f", diagnostics.location.latitude, diagnostics.location.longitude))
+                        Text("Should Glow Plugs Run: \(diagnostics.shouldRunGlowPlugs ? "Yes" : "No")")
+                        Text("Timestamp: \(diagnostics.timestamp.formatted(date: .abbreviated, time: .standard))")
+                    }
+                } else {
+                    Text("No glow plug decision recorded yet.")
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .navigationTitle("Dev Settings")
         .onAppear {
             baseURLString = configStore.config.baseURL.absoluteString
             clientId = configStore.config.clientId
             redirectScheme = configStore.config.redirectScheme
+            weatherURLString = configStore.weatherConfig.baseURL.absoluteString
+            weatherApiKey = configStore.weatherConfig.apiKey ?? ""
+            fallbackTemp = String(format: "%.1f", configStore.weatherConfig.fallbackTemperatureF)
         }
     }
 
@@ -680,6 +862,12 @@ struct DevSettingsView: View {
         guard let url = URL(string: baseURLString) else { return }
         configStore.config = APIConfig(baseURL: url, clientId: clientId, redirectScheme: redirectScheme, scopes: configStore.config.scopes)
         Task { await garageVM.loadVehicles() }
+    }
+
+    private func applyWeatherChanges() {
+        guard let url = URL(string: weatherURLString) else { return }
+        let fallbackValue = Double(fallbackTemp) ?? WeatherAPIConfig.default.fallbackTemperatureF
+        configStore.weatherConfig = WeatherAPIConfig(baseURL: url, apiKey: weatherApiKey.isEmpty ? nil : weatherApiKey, fallbackTemperatureF: fallbackValue)
     }
 }
 
@@ -857,8 +1045,9 @@ struct TruckRemoteStartApp: App {
     init() {
         let configStore = ConfigStore()
         let authManager = AuthManager()
+        let remoteService = LocalRemoteVehicleService(weatherConfigProvider: { configStore.weatherConfig })
         let garageVM = GarageViewModel(remoteServiceProvider: {
-            LocalRemoteVehicleService.shared
+            remoteService
         })
         _configStore = StateObject(wrappedValue: configStore)
         _authManager = StateObject(wrappedValue: authManager)
