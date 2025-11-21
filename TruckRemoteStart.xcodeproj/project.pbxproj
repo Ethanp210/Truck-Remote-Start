@@ -8,14 +8,44 @@ objects = {
 /* Begin PBXBuildFile section */
 TRSAppSwiftBuild /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSAppSwift /* App.swift */; };
 TRSAssetsBuild /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = TRSAssets /* Assets.xcassets */; };
+TRSAuthManagerBuild /* AuthManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSAuthManager /* AuthManager.swift */; };
+TRSConfigStoreBuild /* ConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSConfigStore /* ConfigStore.swift */; };
+TRSHomeDashboardViewBuild /* HomeDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSHomeDashboardView /* HomeDashboardView.swift */; };
 TRSLaunchBuild /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = TRSLaunch /* LaunchScreen.storyboard */; };
+TRSNetworkingBuild /* Networking.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSNetworking /* Networking.swift */; };
+TRSPrimaryButtonBuild /* PrimaryButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSPrimaryButton /* PrimaryButton.swift */; };
+TRSRemoteCommandViewModelBuild /* RemoteCommandViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSRemoteCommandViewModel /* RemoteCommandViewModel.swift */; };
+TRSRemoteVehicleServiceBuild /* RemoteVehicleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSRemoteVehicleService /* RemoteVehicleService.swift */; };
+TRSRootTabViewBuild /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSRootTabView /* RootTabView.swift */; };
+TRSSettingsViewBuild /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSSettingsView /* SettingsView.swift */; };
+TRSVehicleDetailsViewBuild /* VehicleDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSVehicleDetailsView /* VehicleDetailsView.swift */; };
+TRSVehicleLocationViewBuild /* VehicleLocationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSVehicleLocationView /* VehicleLocationView.swift */; };
+TRSVehicleModelsBuild /* VehicleModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSVehicleModels /* VehicleModels.swift */; };
+TRSVehicleStatusViewModelBuild /* VehicleStatusViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSVehicleStatusViewModel /* VehicleStatusViewModel.swift */; };
+TRSVehiclesViewModelBuild /* VehiclesViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSVehiclesViewModel /* VehiclesViewModel.swift */; };
+TRSWeatherClientBuild /* WeatherClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = TRSWeatherClient /* WeatherClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 TRSAppSwift /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; };
 TRSAssets /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; };
+TRSAuthManager /* AuthManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AuthManager.swift; path = Services/AuthManager.swift; };
+TRSConfigStore /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ConfigStore.swift; path = Services/ConfigStore.swift; };
+TRSHomeDashboardView /* HomeDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = HomeDashboardView.swift; path = Views/HomeDashboardView.swift; };
 TRSInfo /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; };
 TRSLaunch /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = Resources/LaunchScreen.storyboard; };
+TRSNetworking /* Networking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Networking.swift; path = Services/Networking.swift; };
+TRSPrimaryButton /* PrimaryButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PrimaryButton.swift; path = Views/Components/PrimaryButton.swift; };
+TRSRemoteCommandViewModel /* RemoteCommandViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoteCommandViewModel.swift; path = ViewModels/RemoteCommandViewModel.swift; };
+TRSRemoteVehicleService /* RemoteVehicleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RemoteVehicleService.swift; path = Services/RemoteVehicleService.swift; };
+TRSRootTabView /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RootTabView.swift; path = Views/RootTabView.swift; };
+TRSSettingsView /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = Views/SettingsView.swift; };
+TRSVehicleDetailsView /* VehicleDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleDetailsView.swift; path = Views/VehicleDetailsView.swift; };
+TRSVehicleLocationView /* VehicleLocationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleLocationView.swift; path = Views/VehicleLocationView.swift; };
+TRSVehicleModels /* VehicleModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleModels.swift; path = Models/VehicleModels.swift; };
+TRSVehicleStatusViewModel /* VehicleStatusViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehicleStatusViewModel.swift; path = ViewModels/VehicleStatusViewModel.swift; };
+TRSVehiclesViewModel /* VehiclesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = VehiclesViewModel.swift; path = ViewModels/VehiclesViewModel.swift; };
+TRSWeatherClient /* WeatherClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WeatherClient.swift; path = Services/WeatherClient.swift; };
 TRSEntitlements /* TruckRemoteStart.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = TruckRemoteStart.entitlements; };
 TRSProduct /* TruckRemoteStart.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TruckRemoteStart.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -29,6 +59,10 @@ TRSGroup /* Project */ = {
 isa = PBXGroup;
 children = (
 TRSAppSwift /* App.swift */,
+TRSModels /* Models */,
+TRSServices /* Services */,
+TRSViewModels /* ViewModels */,
+TRSViews /* Views */,
 TRSAssets /* Assets.xcassets */,
 TRSLaunch /* LaunchScreen.storyboard */,
 TRSEntitlements /* TruckRemoteStart.entitlements */,
@@ -36,13 +70,64 @@ TRSInfo /* Info.plist */,
 TRSProducts /* Products */,
 );
 sourceTree = "<group>";
-};
+}; 
 TRSProducts /* Products */ = {
 isa = PBXGroup;
 children = (
 TRSProduct /* TruckRemoteStart.app */,
 );
 name = Products;
+sourceTree = "<group>";
+}; 
+TRSModels /* Models */ = {
+isa = PBXGroup;
+children = (
+TRSVehicleModels /* VehicleModels.swift */,
+);
+path = Models;
+sourceTree = "<group>";
+};
+TRSServices /* Services */ = {
+isa = PBXGroup;
+children = (
+TRSAuthManager /* AuthManager.swift */,
+TRSConfigStore /* ConfigStore.swift */,
+TRSNetworking /* Networking.swift */,
+TRSRemoteVehicleService /* RemoteVehicleService.swift */,
+TRSWeatherClient /* WeatherClient.swift */,
+);
+path = Services;
+sourceTree = "<group>";
+};
+TRSViewModels /* ViewModels */ = {
+isa = PBXGroup;
+children = (
+TRSRemoteCommandViewModel /* RemoteCommandViewModel.swift */,
+TRSVehicleStatusViewModel /* VehicleStatusViewModel.swift */,
+TRSVehiclesViewModel /* VehiclesViewModel.swift */,
+);
+path = ViewModels;
+sourceTree = "<group>";
+};
+TRSViews /* Views */ = {
+isa = PBXGroup;
+children = (
+TRSHomeDashboardView /* HomeDashboardView.swift */,
+TRSRootTabView /* RootTabView.swift */,
+TRSSettingsView /* SettingsView.swift */,
+TRSVehicleDetailsView /* VehicleDetailsView.swift */,
+TRSVehicleLocationView /* VehicleLocationView.swift */,
+TRSViewComponents /* Components */,
+);
+path = Views;
+sourceTree = "<group>";
+};
+TRSViewComponents /* Components */ = {
+isa = PBXGroup;
+children = (
+TRSPrimaryButton /* PrimaryButton.swift */,
+);
+path = Components;
 sourceTree = "<group>";
 };
 /* End PBXGroup section */
@@ -120,6 +205,21 @@ isa = PBXSourcesBuildPhase;
 buildActionMask = 2147483647;
 files = (
 TRSAppSwiftBuild /* App.swift in Sources */,
+TRSAuthManagerBuild /* AuthManager.swift in Sources */,
+TRSConfigStoreBuild /* ConfigStore.swift in Sources */,
+TRSHomeDashboardViewBuild /* HomeDashboardView.swift in Sources */,
+TRSNetworkingBuild /* Networking.swift in Sources */,
+TRSPrimaryButtonBuild /* PrimaryButton.swift in Sources */,
+TRSRemoteCommandViewModelBuild /* RemoteCommandViewModel.swift in Sources */,
+TRSRemoteVehicleServiceBuild /* RemoteVehicleService.swift in Sources */,
+TRSRootTabViewBuild /* RootTabView.swift in Sources */,
+TRSSettingsViewBuild /* SettingsView.swift in Sources */,
+TRSVehicleDetailsViewBuild /* VehicleDetailsView.swift in Sources */,
+TRSVehicleLocationViewBuild /* VehicleLocationView.swift in Sources */,
+TRSVehicleModelsBuild /* VehicleModels.swift in Sources */,
+TRSVehicleStatusViewModelBuild /* VehicleStatusViewModel.swift in Sources */,
+TRSVehiclesViewModelBuild /* VehiclesViewModel.swift in Sources */,
+TRSWeatherClientBuild /* WeatherClient.swift in Sources */,
 );
 runOnlyForDeploymentPostprocessing = 0;
 };
